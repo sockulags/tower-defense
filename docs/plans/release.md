@@ -1,22 +1,21 @@
 # Release plan: GitHub Pages and an installable app for friends and family
 
-Status: decided in principle by the user, not built yet. Goal: friends and family open a link on
-their phone, add the game to the home screen, play it like an app, and tell us what they think.
+Status: decided by the user, not built yet. Goal: friends and family open a link on
+their phone, add the game to the home screen, play it like an app, and tell the user what they
+think in person. There is no feedback form; the user collects opinions privately.
 
 ## What is needed
 
 ### 1. A home on GitHub
 
-- The repository has no remote yet. The user creates a GitHub repository (or asks me to, with the
-  name and whether it is public) and pushes `main` to it.
-- GitHub Pages on a free account needs a public repository; a private one needs a paid plan.
-  Decision for the user.
+- A public repository named `tower-defense` (the name does not matter to the user and can change
+  with the game's real name). Public, so GitHub Pages is free. `main` is pushed to it.
 
 ### 2. Automatic publishing
 
 - A GitHub Actions workflow builds the game on every push to `main` and deploys `dist/` to GitHub
   Pages, so the friends' link always has the latest version.
-- Vite's `base` is set to the repository path (for example `/duskwatch/`) for the Pages build. The
+- Vite's `base` is set to the repository path (`/tower-defense/`) for the Pages build. The
   single-file build for the claude.ai Artifact stays as it is.
 
 ### 3. An installable web app (PWA)
@@ -45,16 +44,10 @@ The game is built for mouse and keyboard today. Before friends test on phones:
 - Buttons are at least finger-sized, and nothing important depends on keyboard shortcuts.
 - Tested on a real iPhone and Android phone through the Pages link.
 
-### 5. Feedback from testers
+### 5. Version number
 
-- A **Feedback** entry in the settings panel (from `front-door.md`), so it is always one tap away
-  but never in the way.
-- It opens a short form: what happened, what you liked, what was confusing, plus the game version
-  and device filled in automatically.
-- Where the feedback goes is a decision for the user. Options: a prefilled GitHub issue (testers
-  need a GitHub account), a Google Form (no account needed, recommended for family), or an email
-  draft.
-- The version number is shown small in settings so feedback can be matched to a build.
+- The version is shown small in settings, so when a tester mentions a problem the user can tell
+  which build they had.
 
 ## Order
 
@@ -64,10 +57,10 @@ clear start, and every gameplay phase after that reaches them automatically and 
 1. GitHub repository and Pages workflow.
 2. Manifest, icons, service worker, local fonts, update prompt.
 3. Touch and phone layout.
-4. Feedback form and version number.
+4. Version number in settings.
 
-## Decisions for the user
+## Decisions
 
-1. Public repository (free Pages) or private (paid plan).
-2. Where feedback goes: GitHub issues, a Google Form, or email.
-3. Repository name, which becomes part of the link until the game has a real name and domain.
+1. Public repository, so GitHub Pages is free.
+2. No feedback form; testers tell the user in person.
+3. Repository name `tower-defense` for now.
