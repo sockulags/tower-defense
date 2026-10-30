@@ -76,7 +76,6 @@ export const en = {
     clearedOf: (cleared: number, total: number) => `${cleared} of ${total} waves cleared.`,
     record: 'New record!',
     dust: (n: number) => `+${n} stardust`,
-    hero: (who: string, level: number, kills: number) => `Hero of the night: ${who} at level ${level}, with ${kills} ${kills === 1 ? 'shadow' : 'shadows'} defeated.`,
     newLevel: (n: number) => `Watch level ${n}!`,
     newTower: (name: string) => `New tower: ${name}`,
   },
@@ -290,7 +289,7 @@ export const en = {
       { title: 'Bring the Warden', text: 'Place the Warden once per run, for free. Tap the seal to use their ability.' },
     ],
     hints: {
-      build: 'Pick a tower on the belt, then tap the grass beside the road.',
+      build: 'Drag a tower from the belt onto the grass beside the road.',
       wave: 'Ready? Blow the horn to call the first wave.',
       upgrade: 'Tap one of your towers and press + to make it stronger.',
       warden: 'The Warden is free. Pick the first medallion and place them near the road.',

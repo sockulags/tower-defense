@@ -1,6 +1,6 @@
-// The end-of-run panel: won or lost, stardust earned, anything newly unlocked, and the buttons that
-// make sense next for the mode. After a profile's first run it also asks once for a name.
-import { NAMED_LEVEL, nickname } from '../game/towers';
+// The end-of-run panel, kept small: won or lost, one short line on the waves, stardust earned,
+// anything newly unlocked, and the buttons that make sense next for the mode. After a profile's
+// first run it also asks once for a name, in a single row.
 import { L } from '../i18n';
 import type { RunResult } from '../meta';
 import { DEFAULT_NAME, activeProfile, persist, renameProfile, save } from '../save';
@@ -15,12 +15,8 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 export function renderEnd(box: HTMLElement, g: Game, r: RunResult, gaveUp: boolean, restart: (id: MapId) => void) {
   const s = L(), f = s.front, m = g.map;
   let h = `<div class="big">${r.win ? s.end.win : gaveUp ? s.end.gaveUp : s.end.lose}</div>`;
-  h += `<p>${m.survival ? s.end.survived(r.cleared) : s.end.clearedOf(r.cleared, m.waves)}${r.newBest && r.cleared > 0 ? ' ' + s.end.record : ''}</p>`;
+  h += `<p class="fine">${m.survival ? s.end.survived(r.cleared) : s.end.clearedOf(r.cleared, m.waves)}${r.newBest && r.cleared > 0 ? ' ' + s.end.record : ''}</p>`;
   if (r.dust > 0) h += `<p class="dust">${s.end.dust(r.dust)}</p>`;
-  if (r.hero && r.hero.dealt > 0) {
-    const who = r.hero.level >= NAMED_LEVEL ? `${nickname(r.hero)} (${s.towers[r.hero.type].name})` : s.towers[r.hero.type].name;
-    h += `<p class="fine">${s.end.hero(who, r.hero.level, r.hero.kills)}</p>`;
-  }
   if (r.levelAfter > r.levelBefore) h += `<p class="good"><b>${s.end.newLevel(r.levelAfter)}</b></p>`;
   for (const t of r.newTowers) h += `<p class="good">${s.end.newTower(s.towers[t].name)}</p>`;
   // The squad: this run's new tower opened the squad.
@@ -45,10 +41,9 @@ export function renderEnd(box: HTMLElement, g: Game, r: RunResult, gaveUp: boole
   if (ask) {
     const name = activeProfile().name;
     h += `<form class="sign" id="oSign">
-        <b>${f.end.signTitle}</b>
-        <label class="fine" for="oName">${f.end.signText}</label>
-        <div class="rename"><input id="oName" maxlength="24" value="${name === DEFAULT_NAME ? '' : esc(name)}" placeholder="${esc(f.yourName)}" autocomplete="off">
-          <button class="go small" type="submit">${f.end.sign}</button><button class="ghost" type="button" id="oSkip">${f.end.skip}</button></div>
+        <label for="oName">${f.end.signTitle}</label>
+        <div class="sign-row"><input id="oName" maxlength="24" value="${name === DEFAULT_NAME ? '' : esc(name)}" placeholder="${esc(f.yourName)}" title="${esc(f.end.signText)}" autocomplete="off">
+          <button class="go small" type="submit">${f.end.sign}</button><button class="ghost small" type="button" id="oSkip">${f.end.skip}</button></div>
       </form>`;
   }
   box.innerHTML = h;

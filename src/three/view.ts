@@ -157,12 +157,26 @@ function addSunlight(scene: THREE.Scene, shadows: boolean) {
   scene.add(rim);
 }
 
-/** Frames the playable board in an orthographic camera at the game's tilt, for a given aspect. */
-function fitOrtho(camera: THREE.OrthographicCamera, aspect: number, pad = BOARD_PAD) {
+/** Screen space kept free for the HUD, in CSS pixels; the board is framed inside what is left. */
+export interface Insets { top: number; right: number; bottom: number; left: number }
+const NO_INSETS: Insets = { top: 0, right: 0, bottom: 0, left: 0 };
+/** Tiles of island scenery the menu demo may show around the board before it crops instead. */
+const COVER_MARGIN = 2;
+
+/**
+ * Frames the playable board in an orthographic camera at the game's tilt, for a screen of w x h
+ * CSS pixels. The board fits inside the screen minus `ins`, centred in that rectangle. With
+ * `cover`, a screen far taller or wider than the board is filled with island instead: the view
+ * never reaches more than COVER_MARGIN tiles past the board and crops the board's sides instead.
+ */
+function fitOrtho(camera: THREE.OrthographicCamera, w: number, h: number, pad = BOARD_PAD, ins: Insets = NO_INSETS, cover = false) {
   const cos = Math.cos(CAMERA_TILT);
-  const hw = Math.max(COLS / 2 + pad, (ROWS / 2 + pad) * cos * aspect);
-  const hh = hw / aspect;
-  Object.assign(camera, { left: -hw, right: hw, top: hh, bottom: -hh });
+  const iw = Math.max(1, w - ins.left - ins.right), ih = Math.max(1, h - ins.top - ins.bottom);
+  // World units per CSS pixel: the smallest that still holds the whole board.
+  let s = Math.max((COLS + 2 * pad) / iw, ((ROWS + 2 * pad) * cos) / ih);
+  if (cover) s = Math.min(s, (COLS + 2 * COVER_MARGIN) / w, ((ROWS + 2 * COVER_MARGIN) * cos) / h);
+  const cx = ins.left + iw / 2, cy = ins.top + ih / 2;
+  Object.assign(camera, { left: -cx * s, right: (w - cx) * s, top: cy * s, bottom: -(h - cy) * s });
   camera.position.set(0, Math.cos(CAMERA_TILT) * 40, Math.sin(CAMERA_TILT) * 40);
   camera.lookAt(0, 0, 0);
   camera.updateProjectionMatrix();
@@ -186,7 +200,7 @@ export function mapPortrait(map: MapDef, w = 480, h = 300): string {
   const world = buildWorld(map, buildPath(map));
   scene.add(world.board, world.heart, world.portal);
   const cam = new THREE.OrthographicCamera(-10, 10, 6, -6, 0.1, 100);
-  fitOrtho(cam, w / h, 0.9);
+  fitOrtho(cam, w, h, 0.9);
   renderer.render(scene, cam);
   const url = canvas.toDataURL('image/jpeg', 0.86);
   for (const o of [world.board, world.heart, world.portal]) disposeTree(o);
@@ -470,9 +484,26 @@ export class GameView {
     this.fitCamera();
   }
 
+  private insets: Insets = NO_INSETS;
+  private cover = false;
+
+  /**
+   * Keeps screen space free for the HUD (CSS pixels from each edge) and frames the whole board in
+   * the rest. `cover` (the menu demo) fills very tall or wide screens with island instead.
+   */
+  setInsets(ins: Insets | null, cover = false) {
+    const next = ins ?? NO_INSETS;
+    const same = cover === this.cover
+      && (['top', 'right', 'bottom', 'left'] as const).every((k) => Math.abs(next[k] - this.insets[k]) < 0.5);
+    if (same) return;
+    this.insets = { ...next };
+    this.cover = cover;
+    this.fitCamera();
+  }
+
   private fitCamera() {
-    const aspect = this.size.w / this.size.h;
-    if (!this.focus) { fitOrtho(this.camera, aspect); return; }
+    const { w, h } = this.size, aspect = w / h;
+    if (!this.focus) { fitOrtho(this.camera, w, h, BOARD_PAD, this.insets, this.cover); return; }
     const hw = this.focus.halfWidth, hh = hw / aspect, tx = wx(this.focus.x), tz = wz(this.focus.y);
     Object.assign(this.camera, { left: -hw, right: hw, top: hh, bottom: -hh });
     this.camera.position.set(tx, Math.cos(CAMERA_TILT) * 40, tz + Math.sin(CAMERA_TILT) * 40);

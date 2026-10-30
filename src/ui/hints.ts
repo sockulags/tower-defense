@@ -9,14 +9,14 @@ import { $ } from './dom';
 import { currentView } from './play';
 import type { Game } from '../types';
 
-interface Box { left: number; top: number; width: number; bottom: number }
+interface Box { left: number; top: number; width: number; height: number; right: number; bottom: number }
 
 /** A small box around a tower as it appears on screen. */
 function towerBox(g: Game): Box | null {
   const t = g.towers.find((t) => canUpgrade(g, t)) ?? g.towers[0];
   if (!t) return null;
   const p = currentView().screenOf(t.x, t.y, 1.6);
-  return { left: p.sx - 24, top: p.sy - 24, width: 48, bottom: p.sy + 24 };
+  return { left: p.sx - 24, top: p.sy - 24, width: 48, height: 48, right: p.sx + 24, bottom: p.sy + 24 };
 }
 
 type HintId = 'build' | 'wave' | 'upgrade' | 'warden';
@@ -49,6 +49,8 @@ const HINTS: Hint[] = [
   },
 ];
 
+const SHORT = window.matchMedia('(max-height: 500px)');
+
 let game: Game | null = null;
 let timer = 0;
 let showing: HintId | null = null;
@@ -80,7 +82,8 @@ function tick() {
   for (const h of HINTS) if (!hintDone(h.id) && h.done(g)) markHint(h.id);
   const next = HINTS.find((h) => !hintDone(h.id));
   if (!next) { stopHints(); return; }
-  if (!next.ready(g) || g.paused) { hide(); return; }
+  // On a short screen the open tower card has the floor; the hint waits until it closes.
+  if (!next.ready(g) || g.paused || (SHORT.matches && !$('card').hidden)) { hide(); return; }
   if (showing !== next.id) show(next);
   place(next, g);
 }
@@ -93,12 +96,26 @@ function show(h: Hint) {
   $('hintX').onclick = () => { markHint(h.id); hide(); tick(); };
 }
 
-/** Keeps the bubble just above what it talks about, inside the window. */
+/** Keeps the bubble just above what it talks about (beside it on short screens), inside the window. */
 function place(h: Hint, g: Game) {
   const el = $('hint'), a = h.anchor(g);
   if (!a) return;
   const r = a instanceof Element ? a.getBoundingClientRect() : a;
   const w = el.offsetWidth, ht = el.offsetHeight;
+  if (SHORT.matches) {
+    // A phone held sideways: the controls stand in side columns, so the bubble sits beside its
+    // target, level with the target's top, and points sideways at it.
+    const right = r.left + r.width / 2 > window.innerWidth / 2;
+    const left = right ? r.left - w - 14 : r.right + 14;
+    const top = Math.max(8, Math.min(window.innerHeight - ht - 8, r.top));
+    el.classList.remove('below');
+    el.classList.toggle('side-l', right);
+    el.classList.toggle('side-r', !right);
+    el.style.transform = `translate(${Math.round(Math.max(8, left))}px, ${Math.round(top)}px)`;
+    el.style.setProperty('--tail', `${Math.round(Math.max(14, Math.min(ht - 14, Math.min(r.height, 60) / 2 + r.top - top)))}px`);
+    return;
+  }
+  el.classList.remove('side-l', 'side-r');
   const left = Math.max(12, Math.min(window.innerWidth - w - 12, r.left + r.width / 2 - w / 2));
   // Above the target when there is room under the top bar, otherwise below it, so the bubble
   // never covers what it points at.

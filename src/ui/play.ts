@@ -8,8 +8,6 @@
 import { MAX_LEVEL, T } from '../config';
 import { HERO_MAX_LEVEL, heroUpgradeCost } from '../data/hero';
 import { TOWERS } from '../data/towers';
-import { posAt } from '../game/path';
-import { waveRift } from '../game/terrain'; // rifts that move: the horn waits at the next wave's rift
 import { canUpgradeHero, castAbility, heroStats, placeHero, upgradeHero } from '../game/hero';
 import { createGame, giveUp, startWave, update } from '../game/run';
 import {
@@ -30,7 +28,7 @@ import { startHints, stopHints } from './hints';
 import { openHowTo, openSettings } from './settings';
 // Shadow traits: tower attribute icons and the next-wave preview.
 import { renderWavePreview, towerAttrIcons } from './traits';
-// Boons between waves: the choice overlay and the taken boons on the plaque.
+// Boons between waves: the choice overlay and the taken boons beside the plaque.
 import { takeBoon } from '../game/boons';
 import { boonChoiceHtml, boonNoteHtml, boonStripHtml } from './boons';
 import type { BoonId } from '../data/boons';
@@ -68,6 +66,8 @@ export function adopt(g: Game, m: 'menu' | 'gallery') {
   $('ov').hidden = true;
   $('card').hidden = true;
   resetControls();
+  // The menu demo fills the screen with island; the lab's gallery frames itself with setFocus.
+  view.setInsets(null, m === 'menu');
   view.setGame(g);
 }
 
@@ -137,6 +137,7 @@ export function frame(dt: number) {
   if (mode !== 'play') return;
   updateHud(g);
   placeAnchors(g);
+  updateInsets();
   placeQuick(g);
   updateBoons(g); // boons between waves
 }
@@ -188,8 +189,11 @@ function updateHud(g: Game) {
   const horn = $<HTMLButtonElement>('bWave');
   const busy = g.active || g.over;
   if (horn.disabled !== busy) horn.disabled = busy;
-  setText('bWaveLabel', busy ? s.shadowsLeft(g.queue.length + g.enemies.length) : s.callWave);
+  const hornLabel = busy ? s.shadowsLeft(g.queue.length + g.enemies.length) : s.callWave;
+  setText('bWaveLabel', hornLabel);
   setText('bWaveSub', busy ? s.waveNumber(g.wave) : s.waveNumber(g.wave + 1));
+  // The compact horn shows only its icon; the label stays readable as its name.
+  if (horn.title !== hornLabel) { horn.title = hornLabel; horn.setAttribute('aria-label', hornLabel); }
   updateWavePreview(g); // shadow traits: next-wave preview
   updateBossUi(g); // bosses: arrival banner and health bars
   $('pausedBanner').hidden = !g.paused || !$('menuPop').hidden;
@@ -273,37 +277,83 @@ function updateWavePreview(g: Game) {
 }
 // ---------- end next-wave preview ----------
 
-/** Keeps world-anchored controls (wave horn, card) pinned to what they belong to. */
+// ---------- HUD layout: where the controls sit, and the board framed in the space they leave ----------
+//
+// The HUD never covers the road. On ordinary screens the plaque and corner buttons take a band at
+// the top and the belt a band at the bottom, with the wave horn just left of the belt (its preview
+// above it) and the ability seal just right of it. Short screens (a phone held sideways) use the
+// spare width instead: plaque and buttons along the top, the horn and the seal in a column on the
+// left, the belt standing upright on the right. Each frame the real sizes of those pieces become
+// the view's insets, so the camera frames the whole board in the rectangle that is left.
+
+const SHORT = window.matchMedia('(max-height: 500px)');
+/** Room kept above the wave horn for one row of the next-wave preview, so the preview stays off the board. */
+const PREVIEW_ROOM = 56;
+const GAP = 6;
+let insets = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/**
+ * Pins the wave horn and the ability seal beside the belt (or into the left column on short
+ * screens), and the taken boons in a row just right of the plaque.
+ */
+function placeControls() {
+  const call = $('call'), ability = $('ability');
+  const pr = document.querySelector('.plaque')!.getBoundingClientRect();
+  const strip = document.getElementById('boonStrip');
+  if (strip && !strip.hidden) {
+    const room = document.querySelector('.corner')!.getBoundingClientRect().left - pr.right - 20;
+    strip.style.maxWidth = `${Math.max(60, Math.round(room))}px`;
+    strip.style.left = `${Math.round(pr.right + 10)}px`;
+    strip.style.top = `${Math.round(pr.top + Math.max(0, (pr.height - strip.offsetHeight) / 2))}px`;
+  }
+  if (SHORT.matches) {
+    call.style.left = `${Math.round(pr.left)}px`;
+    call.style.top = `${Math.round(pr.bottom + 10)}px`;
+    ability.style.left = ability.style.top = '';
+    return;
+  }
+  const br = $('belt').getBoundingClientRect();
+  call.style.left = `${Math.round(Math.max(8, br.left - 14 - call.offsetWidth))}px`;
+  call.style.top = `${Math.round(br.bottom - call.offsetHeight - 4)}px`;
+  ability.style.left = `${Math.round(br.right + 14)}px`;
+  ability.style.top = `${Math.round(br.bottom - ability.offsetHeight - 4)}px`;
+}
+
+/** Measures the HUD and frames the board in the space it leaves. */
+function updateInsets() {
+  const w = cv.clientWidth, h = cv.clientHeight;
+  const plaque = document.querySelector('.plaque')!.getBoundingClientRect();
+  const corner = document.querySelector('.corner')!.getBoundingClientRect();
+  const call = $('call').getBoundingClientRect(), belt = $('belt').getBoundingClientRect();
+  const strip = document.getElementById('boonStrip');
+  const boons = strip && !strip.hidden ? strip.getBoundingClientRect().bottom : 0;
+  const top = Math.max(plaque.bottom, corner.bottom, boons) + GAP;
+  insets = SHORT.matches
+    ? { top, right: w - belt.left + GAP, bottom: 0, left: call.right + GAP }
+    : { top, right: 0, bottom: h - Math.min(belt.top, call.top - PREVIEW_ROOM) + GAP, left: 0 };
+  view.setInsets(insets);
+}
+
+/** Keeps the horn and seal beside the belt, and the card beside its tower, inside the free board area. */
 function placeAnchors(g: Game) {
   const w = cv.clientWidth, h = cv.clientHeight;
-  const entry = posAt(g.paths[g.active ? g.rift : waveRift(g.map, g.wave + 1)] ?? g.path, T * 0.9); // rifts that move
-  const e = view.screenOf(entry.x, entry.y, 0.6);
-  const call = $('call');
-  call.style.left = `${Math.min(w - 260, Math.max(90, e.sx))}px`;
-  const top = Math.min(h - 220, Math.max(70, e.sy));
-  call.style.top = `${top}px`;
-  // A rift at the bottom edge would put the horn and its preview under the build belt: lift them clear.
-  const belt = $('belt').getBoundingClientRect();
-  const box = call.getBoundingClientRect();
-  const pv = document.getElementById('wavePreview')?.getBoundingClientRect();
-  const has = pv && pv.width > 0;
-  const bottom = has ? Math.max(box.bottom, pv.bottom) : box.bottom;
-  const left = has ? Math.min(box.left, pv.left) : box.left, right = has ? Math.max(box.right, pv.right) : box.right;
-  if (belt.width > 0 && right > belt.left && left < belt.right && bottom > belt.top - 8) {
-    call.style.top = `${Math.max(70, top - (bottom - belt.top + 8))}px`;
-  }
+  placeControls();
 
   const card = $('card');
   const anchor = g.selected ?? (g.heroSelected ? g.hero : null);
   if (anchor && !card.hidden) {
     const p = view.screenOf(anchor.x, anchor.y, 0.8);
     const cw = card.offsetWidth, ch = card.offsetHeight;
+    // Beside the tower on whichever side has room, never over the side columns or off screen.
+    const lo = insets.left + 8, hi = w - insets.right - 8;
     let left = p.sx + 46;
-    if (left + cw > w - 12) left = p.sx - 46 - cw;
-    // Short screens (a phone held sideways) let the card use the full height.
-    const short = h < 500;
-    const top = Math.max(8, Math.min(h - ch - (short ? 8 : 120), Math.max(short ? 8 : 76, p.sy - ch / 2)));
-    card.style.transform = `translate(${Math.round(Math.max(12, left))}px, ${Math.round(top)}px)`;
+    if (left + cw > hi) left = p.sx - 46 - cw;
+    if (left < lo) left = hi - (p.sx + 46) > (p.sx - 46) - lo ? p.sx + 46 : p.sx - 46 - cw;
+    left = Math.max(lo, Math.min(hi - cw, left));
+    // Short screens let the card use the full height; otherwise it stays between the bands.
+    const tLo = SHORT.matches ? 8 : insets.top, tHi = h - ch - (SHORT.matches ? 8 : insets.bottom);
+    const top = Math.max(8, Math.min(tHi, Math.max(tLo, p.sy - ch / 2)));
+    card.style.transform = `translate(${Math.round(Math.max(8, left))}px, ${Math.round(top)}px)`;
   }
 }
 
@@ -319,9 +369,10 @@ export function renderBelt() {
   hb.className = 'medal hero';
   hb.dataset.type = 'hero';
   hb.setAttribute('aria-label', s.hero.name);
-  hb.innerHTML = `<span class="face"><img src="${heroPortrait(g.loadout, 128)}" alt=""></span>
+  hb.innerHTML = `<span class="face"><img src="${heroPortrait(g.loadout, 128)}" alt="" draggable="false"></span>
     <span class="key">H</span><span class="price">${s.hero.medal}</span>`;
-  hb.onclick = () => selectHeroMedal();
+  hb.onclick = () => { if (!takeDragClick()) selectHeroMedal(); };
+  dragFrom(hb, 'hero');
   // Tips follow a mouse only; on touch a tap picks the medallion and nothing lingers on screen.
   hb.onpointerenter = (e) => { if (e.pointerType === 'mouse') showHeroTip(hb); };
   hb.onpointerleave = () => { $('tip').hidden = true; };
@@ -333,10 +384,11 @@ export function renderBelt() {
     b.className = 'medal' + (locked ? ' locked' : '') + (g.build === type ? ' sel' : '');
     b.dataset.type = type;
     b.setAttribute('aria-label', s.towers[type].name);
-    b.innerHTML = `<span class="face"><img src="${portraits[type]}" alt=""></span>
+    b.innerHTML = `<span class="face"><img src="${portraits[type]}" alt="" draggable="false"></span>
       <span class="key">${i + 1}</span>
       <span class="price">${locked ? ICONS.lock + ` ${d.unlock}` : ICONS.coin + ` ${d.cost}`}</span>`;
-    b.onclick = () => selectBuild(type);
+    b.onclick = () => { if (!takeDragClick()) selectBuild(type); };
+    dragFrom(b, type);
     b.onpointerenter = (e) => { if (e.pointerType === 'mouse') showTip(type, b); };
     b.onpointerleave = () => { $('tip').hidden = true; };
     belt.appendChild(b);
@@ -344,10 +396,86 @@ export function renderBelt() {
   appendMillMedal(belt); // economy buildings: only when the lab's mills switch is on
 }
 
+// --- drag to place: press a medallion and drag it onto the board ---
+//
+// The ghost follows the pointer (on touch it floats a little above the finger, so the finger does
+// not hide the spot) and letting go over a valid spot builds there, with the same rules and costs
+// as tapping. Letting go over the belt or an invalid spot cancels. A press that never moves is an
+// ordinary tap or click on the medallion.
+
+const DRAG_START_PX = 8;
+/** On touch the ghost floats this far above the finger. */
+const TOUCH_LIFT_PX = 50;
+let drag: { id: number; type: TowerType | 'hero'; cx: number; cy: number; on: boolean; touch: boolean } | null = null;
+/** Set when a drag ends on a medallion, so the click that follows does not also select it. */
+let dragClick = false;
+const takeDragClick = () => { const was = dragClick; dragClick = false; return was; };
+
+function overBelt(x: number, y: number) {
+  const r = $('belt').getBoundingClientRect();
+  return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+}
+
+function dragPoint(ev: PointerEvent, d: NonNullable<typeof drag>) {
+  if (overBelt(ev.clientX, ev.clientY)) return null;
+  return view.pickPoint(ev.clientX, ev.clientY - (d.touch ? TOUCH_LIFT_PX : 0));
+}
+
+function dragFrom(b: HTMLElement, type: TowerType | 'hero') {
+  b.addEventListener('pointerdown', (ev) => {
+    const g = game;
+    dragClick = false;
+    if (!g || g.over || mode !== 'play' || ev.button > 0) return;
+    if (type === 'hero' ? !!g.hero : !canUseTower(g, type)) return;
+    drag = { id: ev.pointerId, type, cx: ev.clientX, cy: ev.clientY, on: false, touch: ev.pointerType !== 'mouse' };
+    try { b.setPointerCapture(ev.pointerId); } catch { /* the pointer is already gone */ }
+  });
+  b.addEventListener('pointermove', (ev) => {
+    const g = game, d = drag;
+    if (!g || !d || d.id !== ev.pointerId) return;
+    if (!d.on) {
+      if (Math.hypot(ev.clientX - d.cx, ev.clientY - d.cy) < DRAG_START_PX) return;
+      d.on = true;
+      g.build = d.type;
+      g.selected = null;
+      g.heroSelected = false;
+      pendingPlace = null;
+      hideQuick();
+      hideToast();
+      renderCard();
+      $('tip').hidden = true;
+    }
+    g.hover = dragPoint(ev, d);
+  });
+  const end = (ev: PointerEvent) => {
+    const g = game, d = drag;
+    if (!d || d.id !== ev.pointerId) return;
+    drag = null;
+    if (!d.on || !g) return;
+    dragClick = true;
+    const p = ev.type === 'pointerup' && !g.over ? dragPoint(ev, d) : null;
+    let built = false;
+    if (p) built = d.type === 'hero' ? !!placeHero(g, p.x, p.y) : !!placeTower(g, d.type, p.x, p.y, !!g.dev?.allTowers);
+    g.build = null;
+    g.hover = null;
+    if (built && d.type === 'hero') selectHero();
+  };
+  b.addEventListener('pointerup', end);
+  b.addEventListener('pointercancel', end);
+}
+
 function placeTip(anchor: HTMLElement) {
   const tip = $('tip');
   tip.hidden = false;
   const r = anchor.getBoundingClientRect();
+  if (SHORT.matches) {
+    // The belt stands upright at the side: the tip sits to its left.
+    tip.style.bottom = 'auto';
+    tip.style.left = `${Math.round(Math.max(8, $('belt').getBoundingClientRect().left - tip.offsetWidth - 10))}px`;
+    tip.style.top = `${Math.round(Math.max(8, Math.min(window.innerHeight - tip.offsetHeight - 8, r.top)))}px`;
+    return;
+  }
+  tip.style.bottom = tip.style.top = '';
   tip.style.left = `${Math.max(12, Math.min(window.innerWidth - tip.offsetWidth - 12, r.left + r.width / 2 - tip.offsetWidth / 2))}px`;
 }
 
@@ -629,12 +757,12 @@ $('bQuit').onclick = () => {
   showEnd(false, true);
 };
 
-// ---------- boons between waves: the choice and the taken boons on the plaque ----------
+// ---------- boons between waves: the choice and the taken boons beside the plaque ----------
 //
 // After every fifth wave the run offers three boon cards over the board, and the next wave waits
 // until one is taken (tap, click, or the keys 1 to 3). "Look at the board first" folds the cards
 // into a pill at the top so the player can build and upgrade before choosing; the pill or the wave
-// horn opens them again. Taken boons show as small icons in the plaque; hovering or tapping one
+// horn opens them again. Taken boons show as a row of small icons beside the plaque; hovering or tapping one
 // shows what it does.
 
 /** Presses this soon after the cards appear are ignored, so a tap meant for the board never picks a boon. */
@@ -679,12 +807,12 @@ function hideBoonNote() {
   if (note) note.hidden = true;
 }
 
-/** Per frame in a run: shows or folds the choice, and keeps the plaque's boon icons current. */
+/** Per frame in a run: shows or folds the choice, and keeps the taken boon icons current. */
 function updateBoons(g: Game) {
   const hud = $('hud'), s = L().boons;
   const ov = boonEl('boonOv', 'boon-ov', hud);
   const pill = boonEl('boonPill', 'go boon-pill', hud, 'button');
-  const strip = boonEl('boonStrip', 'boon-strip', hud.querySelector<HTMLElement>('.plaque')!);
+  const strip = boonEl('boonStrip', 'boon-strip', hud);
   boonEl('boonNote', 'boon-note panel', hud);
 
   const offer = g.over ? null : g.boons.offer;
@@ -797,6 +925,7 @@ document.addEventListener('pointerdown', (e) => { lastPointer = e.pointerType ||
 function resetControls() {
   hideQuick();
   cancelPress();
+  drag = null;
   pendingPlace = null;
   hoverTower = null;
   cardHot = null;
