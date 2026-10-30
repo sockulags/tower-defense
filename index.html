@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Duskwatch</title>
+  <meta name="claude:viewport-fit-sides" content="cover">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya+Sans:wght@400;500;700&display=swap">
+</head>
+<body>
+  <div class="app">
+    <section id="menu">
+      <header class="brand">
+        <div class="brand-row">
+          <h1 id="mTitle"></h1>
+          <div class="lang" id="mLang"></div>
+        </div>
+        <p class="tag" id="mTag"></p>
+      </header>
+
+      <div class="meta">
+        <div><div class="label" id="mLevelLabel"></div><div class="lvl num" id="mLevel">1</div></div>
+        <div class="prog"><div class="bar"><i id="mBar"></i></div><div class="muted" id="mNext"></div></div>
+        <div><div class="label" id="mDustLabel"></div><div class="dust num" id="mDust">0</div></div>
+      </div>
+
+      <div class="section">
+        <h2 id="mModesTitle"></h2>
+        <div class="modes" id="modes"></div>
+      </div>
+
+      <div class="section">
+        <h2 id="mShopTitle"></h2>
+        <p class="muted" id="mShopIntro"></p>
+        <div class="shop" id="shop"></div>
+      </div>
+
+      <div class="section">
+        <h2 id="mCodexTitle"></h2>
+        <p class="muted" id="mCodexIntro"></p>
+        <div class="codex" id="codex"></div>
+      </div>
+    </section>
+
+    <section id="game" hidden>
+      <div class="hud">
+        <div class="stat"><small id="hLivesL"></small><span class="num" id="hLives" style="color:var(--bad)">20</span></div>
+        <div class="stat"><small id="hGoldL"></small><span class="num" id="hGold" style="color:var(--lamp)">0</span></div>
+        <div class="stat"><small id="hWaveL"></small><span class="num" id="hWave">0</span></div>
+        <div class="stat"><small id="hMapName"></small></div>
+        <div class="spacer"></div>
+        <div class="ctrl">
+          <button class="btn primary" id="bWave"></button>
+          <button class="btn" id="bAuto"></button>
+          <button class="btn" id="bSpeed">1×</button>
+          <button class="btn" id="bPause"></button>
+          <button class="btn" id="bMute"></button>
+          <button class="btn" id="bQuit"></button>
+        </div>
+      </div>
+      <div class="board">
+        <canvas id="cv" width="960" height="600"></canvas>
+        <div class="overlay" id="ov" hidden><div class="ovbox" id="ovbox"></div></div>
+      </div>
+      <aside class="side">
+        <div class="palette" id="palette"></div>
+        <div class="info" id="info"></div>
+        <p class="keys" id="keys"></p>
+      </aside>
+    </section>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
