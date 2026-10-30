@@ -1,4 +1,4 @@
-import { drawTowerShape } from '../game/render';
+import { drawTowerShape } from './icons';
 import type { TowerType } from '../types';
 
 export const $ = <E extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as E;
