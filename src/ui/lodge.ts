@@ -11,9 +11,14 @@ import { $ } from './dom';
 import { FRONT_ICONS } from './front-icons';
 import { ICONS } from './icons';
 import { nav } from './nav';
+// The squad: its own tab once a fifth tower is unlocked.
+import { squadOpen } from '../game/squad';
+import { renderSquadTab } from './squad';
 
-export type LodgeTab = 'warden' | 'talents' | 'workshop';
-const TABS: LodgeTab[] = ['warden', 'talents', 'workshop'];
+export type LodgeTab = 'warden' | 'talents' | 'workshop' | 'squad';
+const ALL_TABS: LodgeTab[] = ['warden', 'talents', 'workshop', 'squad'];
+/** The squad: the Squad tab only appears once it is unlocked. */
+const tabsNow = () => ALL_TABS.filter((t) => t !== 'squad' || squadOpen());
 
 type Slot = keyof Loadout;
 const SLOTS: { slot: Slot; items: Record<string, { cost: number }> }[] = [
@@ -26,7 +31,7 @@ const SLOTS: { slot: Slot; items: Record<string, { cost: number }> }[] = [
 let tab: LodgeTab = 'warden';
 
 export function showLodge(sub?: string) {
-  tab = (TABS as string[]).includes(sub ?? '') ? (sub as LodgeTab) : 'warden';
+  tab = (tabsNow() as string[]).includes(sub ?? '') ? (sub as LodgeTab) : 'warden';
   $('menu').hidden = true;
   $('lodge').hidden = false;
   $('lodge').scrollTop = 0;
@@ -98,8 +103,9 @@ export function renderLodge() {
 
   const tabs = $('lTabs');
   tabs.setAttribute('aria-label', s.lodge.title);
-  tabs.innerHTML = TABS.map((t) =>
-    `<button role="tab" class="ltab${t === tab ? ' on' : ''}" aria-selected="${t === tab}" data-tab="${t}">${f.tabs[t]}</button>`).join('');
+  if (!tabsNow().includes(tab)) tab = 'warden';
+  tabs.innerHTML = tabsNow().map((t) =>
+    `<button role="tab" class="ltab${t === tab ? ' on' : ''}" aria-selected="${t === tab}" data-tab="${t}">${t === 'squad' ? s.squad.tab : f.tabs[t]}</button>`).join('');
   tabs.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
     // Tabs replace the address rather than adding history, so Back leaves the Lodge in one step.
     b.onclick = () => {
@@ -115,6 +121,7 @@ export function renderLodge() {
   root.setAttribute('role', 'tabpanel');
   if (tab === 'warden') renderWarden(root);
   else if (tab === 'talents') renderTalents(root);
+  else if (tab === 'squad') renderSquadTab(root, renderLodge); // the squad
   else renderWorkshop(root);
 }
 

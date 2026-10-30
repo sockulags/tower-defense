@@ -9,6 +9,7 @@ import { applySlow, damage, inRange } from './combat';
 import { burst, floatText } from './fx';
 import { canBuild } from './towers';
 import { boonHeroStats } from './boons'; // boons between waves
+import { lineBlocked, reachAt } from './terrain'; // terrain that matters
 import type { Game, Hero, Stats } from '../types';
 
 export interface HeroStats extends Stats {
@@ -30,6 +31,7 @@ export function heroStats(h: Hero): HeroStats {
     cooldown: w.cooldown * (1 - 0.1 * t.focus),
     power: (1 + 0.3 * lv) * (1 + 0.1 * t.might) * metaDamage(),
   };
+  s.range *= h.reach ?? 1; // terrain: the Warden on a hill reaches further
   boonHeroStats(h, s); // boons between waves
   return s;
 }
@@ -41,6 +43,8 @@ export function placeHero(g: Game, x: number, y: number): Hero | null {
     cd: 0, abilityCd: 0, castAt: -99, angle: -Math.PI / 2, kills: 0, dealt: 0, invested: 0, flash: 1,
     mods: g.boons.mods, // boons between waves
   };
+  const reach = reachAt(g.map, x, y); // terrain: a hill reaches further
+  if (reach !== 1) h.reach = reach;
   g.hero = h;
   sfx.build();
   burst(g, x, y, WEAPONS[h.loadout.weapon].color, 20);
@@ -112,7 +116,8 @@ export function updateHero(g: Game, dt: number) {
   h.cd -= dt;
   if (h.cd > 0) return;
   const s = heroStats(h), w = WEAPONS[h.loadout.weapon];
-  const targets = inRange(g, h.x, h.y, s.range * T).sort((a, b) => b.d - a.d);
+  // Terrain: trees block the Warden's straight shots, not the staff's wave.
+  const targets = inRange(g, h.x, h.y, s.range * T).filter((e) => w.kind === 'wave' || !lineBlocked(g.map, h.x, h.y, e.x, e.y)).sort((a, b) => b.d - a.d);
   if (!targets.length) return;
   h.cd = s.rate;
   h.angle = Math.atan2(targets[0].y - h.y, targets[0].x - h.x);

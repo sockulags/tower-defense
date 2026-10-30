@@ -28,6 +28,10 @@ export interface SaveData {
   hints: string[];
   /** True once the player signed the watch book or skipped it. */
   named: boolean;
+  // ---------- the squad ----------
+  /** The four tower types the player brings once the squad is unlocked (game/squad.ts cleans it). */
+  squad: TowerType[];
+  // ---------- end the squad ----------
 }
 
 export interface ProfileInfo { id: string; name: string }
@@ -42,10 +46,11 @@ export const DEFAULT_NAME = 'Watcher';
 const fresh = (): SaveData => ({
   dust: 0, total: 0,
   up: { gold: 0, lives: 0, dmg: 0, craft: 0 },
-  best: { mill: 0, marsh: 0, ring: 0 },
+  best: { mill: 0, marsh: 0, ring: 0, ford: 0, bramble: 0, fork: 0 },
   won: {},
   hero: { owned: [...STARTING_ITEMS], equip: { ...DEFAULT_LOADOUT }, talents: { might: 0, reach: 0, focus: 0, veteran: 0 } },
   runs: 0, last: null, hints: [], named: false,
+  squad: TOWER_ORDER.slice(0, 4), // the squad
 });
 
 function read(key: string): unknown {
@@ -72,6 +77,7 @@ function upgrade(raw: unknown): SaveData {
     ...d, ...s,
     up: { ...d.up, ...s.up }, best: { ...d.best, ...s.best }, won: { ...s.won }, hero,
     hints: Array.isArray(s.hints) ? [...s.hints] : [],
+    squad: Array.isArray(s.squad) ? [...s.squad] : [...d.squad], // the squad
   };
   // A save from before profiles has no run count; any progress means at least one run was played.
   if (typeof s.runs !== 'number') out.runs = out.total > 0 ? 1 : 0;
@@ -165,9 +171,14 @@ export const metaDamage = () => 1 + 0.06 * save.up.dmg;
 /** Multiplier on tower upgrade prices. */
 export const metaDiscount = () => 1 - 0.06 * save.up.craft;
 export const towerUnlocked = (t: TowerType) => playerLevel() >= (TOWERS[t].unlock ?? 1);
-/** Survival opens once every tower is unlocked, so it is always played with the full set. */
-export const survivalOpen = () => TOWER_ORDER.every(towerUnlocked);
-export const mapOpen = (id: MapId) => (id === 'marsh' ? !!save.won.mill : id === 'ring' ? survivalOpen() : true);
+/**
+ * Survival opens once the first four towers are unlocked (watch level 3), so it is always played
+ * with a full belt. The squad: later towers, like the fifth, do not hold Survival back.
+ */
+export const survivalOpen = () => TOWER_ORDER.slice(0, 4).every(towerUnlocked);
+/** The story unlock chain: each story page opens when the one before it has been won. Survival opens with the full tower set. */
+const STORY_BEFORE: Partial<Record<MapId, MapId>> = { marsh: 'mill', ford: 'marsh', bramble: 'ford', fork: 'bramble' };
+export const mapOpen = (id: MapId) => (id === 'ring' ? survivalOpen() : STORY_BEFORE[id] ? !!save.won[STORY_BEFORE[id]!] : true);
 export const owns = (slot: string, id: string) => save.hero.owned.includes(`${slot}:${id}`);
 
 export const hintDone = (id: string) => save.hints.includes(id);

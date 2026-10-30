@@ -69,8 +69,9 @@ const bal = {
  * shadow, the giant last. The bosses (Stomper, Thief, Mender) stand on the inner loop below the towers.
  */
 const ENEMY_D = [1.9, 3.4, 4.9, 6.4, 7.9, 9.3, 10.6, 12.6, 40.1, 42.9, 45.7];
-const TOWER_X = [1.2, 3.6, 6, 8.4];
-const HERO_X = 10.8;
+// The squad: five towers now, so the line-up is a little tighter and the Warden moves right.
+const TOWER_X = [1.0, 3.2, 5.4, 7.6, 9.8];
+const HERO_X = 12.0;
 /** Between the first stretch of road (row 1) and the inner loop (row 4). */
 const ROW_Y = 2.5;
 
@@ -346,7 +347,7 @@ function sandboxHtml() {
   return `
     <section>
       <div class="labrow"><span>${lab.map}</span>${MAP_ORDER.map((id) => `<button class="chip ${opts.map === id ? 'on' : ''}" data-map="${id}">${s.maps[id].name}</button>`).join('')}</div>
-      <div class="labrow">${toggle('dGod', lab.god, !!g.dev?.god)}${toggle('dGold', lab.freeGold, !!g.dev?.freeGold)}</div>
+      <div class="labrow">${toggle('dGod', lab.god, !!g.dev?.god)}${toggle('dGold', lab.freeGold, !!g.dev?.freeGold)}${toggle('dMills', s.mills.lab, !!g.dev?.mills) /* economy buildings */}</div>
       <div class="labrow"><button class="go small" id="dBoons">${s.boons.lab.offer}</button></div>
     </section>
     <section>
@@ -367,6 +368,8 @@ function wireSandbox(g: Game) {
   panel.querySelectorAll<HTMLButtonElement>('[data-map]').forEach((b) => { b.onclick = () => { opts.map = b.dataset.map as MapId; startSandbox(); }; });
   $('dGod').onclick = () => { g.dev!.god = !g.dev!.god; render(); };
   $('dGold').onclick = () => { g.dev!.freeGold = !g.dev!.freeGold; render(); };
+  // Economy buildings (lab experiment): mills on the belt for this sandbox run; off by default.
+  $('dMills').onclick = () => { g.dev!.mills = !g.dev!.mills; g.millBuild = false; renderBelt(); render(); };
   $<HTMLInputElement>('lStrength').onchange = (ev) => { opts.strength = Number((ev.target as HTMLInputElement).value); g.wave = opts.strength; render(); };
   panel.querySelectorAll<HTMLButtonElement>('[data-spawn]').forEach((b) => {
     b.onclick = () => {

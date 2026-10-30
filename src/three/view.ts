@@ -11,12 +11,20 @@ import { canBuild, needsBranch, stats } from '../game/towers';
 import { buildPath, heartOf } from '../game/path';
 import { C, gem, glow, makeBoard, makeDaze, makeEnemy, makeHeart, makeHero, makePortal, makeTower, tileToWorld } from './models';
 import { BOSS_COLORS } from '../game/bosses'; // bosses
+// Terrain and rifts that move
+import { WATER_LEVEL, groundHeight } from './models';
+import { HILL_REACH, reachAt, riftCount, roadsOf, waveRift, woodsNear } from '../game/terrain';
 import { BADGE_RADIUS, WEAPONS, type Loadout } from '../data/hero';
 import { heroStats } from '../game/hero';
 import { ENEMIES } from '../data/enemies';
 import { COMBOS, WORD_LIFE } from '../game/combos';
 import { L } from '../i18n';
 import type { ComboWord, Enemy, EnemyType, Fx, Game, MapDef, Path, Shot, Tower, TowerType } from '../types';
+// Economy buildings (lab experiment)
+import { makeMill } from './models';
+import { MILL } from '../data/mills';
+import { canAffordMill, millStageOf } from '../game/mills';
+import type { Mill } from '../types';
 
 const FONT = '"Alegreya Sans", sans-serif';
 /** Camera angle from straight down: steep enough to read the board, shallow enough to see the sides of models. */
@@ -116,12 +124,18 @@ function buildWorld(map: MapDef, path: Path) {
   const heart = makeHeart();
   addOutlines(heart);
   heart.position.set(wx(end.x), 0, wz(end.y));
-  const [px, py] = map.pts[0], [nx, ny] = map.pts[1];
-  const start = tileToWorld(px, py);
-  const portal = makePortal();
-  addOutlines(portal);
-  portal.position.set(start.x, 0, start.z);
-  portal.rotation.y = -Math.atan2(ny - py, nx - px);
+  // Rifts that move: one rift at the start of every road, gathered in one group.
+  const portal = new THREE.Group();
+  portal.name = 'rifts';
+  for (const road of roadsOf(map)) {
+    const [px, py] = road[0], [nx, ny] = road[1];
+    const start = tileToWorld(px, py);
+    const rift = makePortal();
+    addOutlines(rift);
+    rift.position.set(start.x, 0, start.z);
+    rift.rotation.y = -Math.atan2(ny - py, nx - px);
+    portal.add(rift);
+  }
   return { board, heart, portal };
 }
 
@@ -219,6 +233,13 @@ export function towerPortraits(): Record<TowerType, string> {
   const urls = portrait(types.map((t) => makeTower(t, 2, null)), 128, 0.68, 0.82);
   portraitCache = Object.fromEntries(types.map((t, i) => [t, urls[i]])) as Record<TowerType, string>;
   return portraitCache;
+}
+
+// Economy buildings (lab experiment): portraits of the mill at each stage, for its medallion and card.
+let millPortraitCache: string[] | null = null;
+export function millPortrait(stage = 3): string {
+  millPortraitCache ??= portrait([1, 2, 3].map((s) => makeMill(s)), 128, 0.6, 0.82);
+  return millPortraitCache[Math.max(1, Math.min(3, stage)) - 1];
 }
 
 // In-game controls: how a tower will look after its branch upgrade (level 4), for the branch note.
@@ -346,6 +367,10 @@ export class GameView {
   private heartFlame: THREE.MeshBasicMaterial | null = null;
   private heartLight = new THREE.PointLight('#ffb35c', 4, 6, 1.6);
   private portal: THREE.Group | null = null;
+  /** Terrain: ground height at a world point for the current board (hills and water beds). */
+  private ground: ((x: number, z: number) => number) | null = null;
+  /** Rifts that move: how much each rift is opened up, eased toward 1 for the next wave's rift. */
+  private riftOpen: number[] = [];
   private mills: THREE.Object3D[] = [];
   private flickers: THREE.Object3D[] = [];
 
@@ -489,6 +514,7 @@ export class GameView {
     this.dying = []; this.motes = [];
     this.world.children.slice().forEach((c) => { this.world.remove(c); disposeTree(c); });
     this.mills = []; this.flickers = [];
+    this.clearMills(); // economy buildings
     this.setGhost(null);
     if (!g) return;
 
@@ -500,6 +526,8 @@ export class GameView {
     this.world.add(w.board, w.heart, w.portal);
     this.heart = w.heart;
     this.portal = w.portal;
+    this.ground = groundHeight(g.map); // terrain
+    this.riftOpen = w.portal.children.map(() => 1);
     this.heartFlame = (w.heart.getObjectByName('orb') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.heartLight.position.set(w.heart.position.x, 1.1, w.heart.position.z);
   }
@@ -546,6 +574,7 @@ export class GameView {
       return;
     }
     this.syncTowers(g, now);
+    this.syncMills(g, now); // economy buildings (lab experiment)
     this.syncHero(g, now);
     this.syncEnemies(g, now);
     this.animateDying(now);
@@ -605,7 +634,7 @@ export class GameView {
         if (v) { this.scene.remove(v.obj); disposeTree(v.obj); }
         const obj = makeTower(t.type, t.level, t.branch);
         addOutlines(obj);
-        obj.position.set(wx(t.x), 0, wz(t.y));
+        obj.position.set(wx(t.x), this.standY(t.x, t.y), wz(t.y)); // terrain: towers stand on hills
         this.scene.add(obj);
         v = {
           obj, key, yaw, lastCd: t.cd, fireAt: -9, builtAt: upgraded ? now - 0.12 : now, phase: (t.x * 13 + t.y * 7) % 6.28,
@@ -705,7 +734,7 @@ export class GameView {
         obj.add(stud);
       }
       addOutlines(obj);
-      obj.position.set(wx(h.x), 0, wz(h.y));
+      obj.position.set(wx(h.x), this.standY(h.x, h.y), wz(h.y)); // terrain: the Warden stands on hills
       this.scene.add(obj);
       v = { obj, key, yaw: v?.yaw ?? -h.angle, lastCd: h.cd, fireAt: -9, castSeen: h.castAt, castAt: -9, builtAt: upgraded ? now - 0.12 : now, muzzle: obj.getObjectByName('muzzle') };
       this.hero = v;
@@ -734,7 +763,7 @@ export class GameView {
     if (arm) arm.rotation.z = -fire * 0.9 + cast * 1.6;
     v.obj.traverse((o) => { if (o.name === 'core') o.scale.setScalar(1 + fire * 0.8 + cast * 1.4 + Math.sin(now * 6) * 0.05); });
     if (this.aura.visible) {
-      this.aura.position.set(wx(h.x), 0.035, wz(h.y));
+      this.aura.position.set(wx(h.x), this.standY(h.x, h.y) + 0.035, wz(h.y));
       this.aura.scale.setScalar(BADGE_RADIUS * (1 + Math.sin(now * 2) * 0.01));
     }
   }
@@ -857,7 +886,7 @@ export class GameView {
 
     const born = easeOutBack(clamp01((now - v.bornAt) / 0.35));
     const s = ENEMY_SCALE * born;
-    v.obj.position.set(x, (r + lift) * s, z);
+    v.obj.position.set(x, (r + lift) * s + this.wade(e, x, z), z); // terrain: shadows wade through water
 
     if (e.lastHit !== v.lastHit) {
       v.lastHit = e.lastHit;
@@ -1062,6 +1091,7 @@ export class GameView {
       v.mesh.position.set(x, y, z);
       const heading = Math.atan2(-(z - v.lz), x - v.lx);
       if (type === 'spark') { v.mesh.rotation.set(0, heading, 0); v.mesh.scale.set(0.11, 0.04, 0.04); }
+      else if (type === 'kite') { v.mesh.rotation.set(0, heading, 0); v.mesh.scale.set(0.17, 0.025, 0.025); } // the fifth tower: a long harpoon, flying straight
       else v.mesh.rotation.set(performance.now() / 120, heading, 0);
       if (type === 'star' || type === 'spark') {
         const c = new THREE.Color(s.color).multiplyScalar(1.3);
@@ -1124,7 +1154,7 @@ export class GameView {
           this.rings.set(f, m);
         }
         m.scale.setScalar(Math.max(0.01, (f.r0 + (f.r1 - f.r0) * (1 - a * a)) / T));
-        m.position.set(wx(f.x), 0.06, wz(f.y));
+        m.position.set(wx(f.x), this.standY(f.x, f.y) + 0.06, wz(f.y));
         (m.material as THREE.MeshBasicMaterial).opacity = a * 0.55;
       } else if (f.k === 'line' && lc < 400) {
         lpos.setXYZ(lc * 2, wx(f.x), 0.5, wz(f.y));
@@ -1199,16 +1229,17 @@ export class GameView {
     if (hover && g.build) {
       const isHero = g.build === 'hero';
       const ok = canBuild(g, hover.x, hover.y) && (isHero ? !g.hero : g.gold >= TOWERS[g.build as TowerType].cost);
-      const range = isHero ? WEAPONS[g.loadout.weapon].range * (1 + 0.08 * g.heroTalents.reach) : TOWERS[g.build as TowerType].range;
-      const x = wx(hover.x), z = wz(hover.y);
+      // Terrain: the ring shows a hill's longer reach before building.
+      const range = (isHero ? WEAPONS[g.loadout.weapon].range * (1 + 0.08 * g.heroTalents.reach) : TOWERS[g.build as TowerType].range) * reachAt(g.map, hover.x, hover.y);
+      const x = wx(hover.x), z = wz(hover.y), y = this.standY(hover.x, hover.y);
       this.footprint.visible = true;
-      this.footprint.position.set(x, 0.03, z);
+      this.footprint.position.set(x, y + 0.03, z);
       (this.footprint.material as THREE.MeshBasicMaterial).color.set(ok ? '#ffffff' : '#ff4f5e');
       this.buildRing.visible = true;
-      this.buildRing.position.set(x, 0.03, z);
+      this.buildRing.position.set(x, y + 0.03, z);
       this.buildRing.scale.setScalar(range);
-      (this.buildRing.material as THREE.MeshBasicMaterial).color.set(ok ? '#ffffff' : '#ff4f5e');
-      this.ghost!.obj.position.set(x, 0, z);
+      (this.buildRing.material as THREE.MeshBasicMaterial).color.set(ok ? (reachAt(g.map, hover.x, hover.y) > 1 ? '#ffe7a8' : '#ffffff') : '#ff4f5e'); // terrain: golden on a hill
+      this.ghost!.obj.position.set(x, y, z);
       this.ghost!.obj.visible = ok;
     } else {
       this.footprint.visible = false;
@@ -1225,17 +1256,116 @@ export class GameView {
       this.ringT = now;
       this.ringFor = focus.t;
       this.selectRing.visible = true;
-      this.selectRing.position.set(wx(focus.t.x), 0.03, wz(focus.t.y));
+      this.selectRing.position.set(wx(focus.t.x), this.standY(focus.t.x, focus.t.y) + 0.03, wz(focus.t.y));
       this.selectRing.scale.setScalar(this.ringScale);
       (this.selectRing.material as THREE.MeshBasicMaterial).color.set(focus.range > stats(focus.t).range + 1e-3 ? '#ffe7a8' : '#fff6dc');
     } else if (g.heroSelected && g.hero) {
       this.ringFor = null;
       this.selectRing.visible = true;
-      this.selectRing.position.set(wx(g.hero.x), 0.03, wz(g.hero.y));
+      this.selectRing.position.set(wx(g.hero.x), this.standY(g.hero.x, g.hero.y) + 0.03, wz(g.hero.y));
       this.selectRing.scale.setScalar(heroStats(g.hero).range);
       (this.selectRing.material as THREE.MeshBasicMaterial).color.set('#ffe7a8');
     } else this.selectRing.visible = false;
   }
+
+  // ---------- economy buildings: mills (lab experiment) ----------
+
+  private millViews = new Map<Mill, { obj: THREE.Group; stage: number; builtAt: number; payAt: number; payKick: number; phase: number }>();
+  private millGhost: THREE.Group | null = null;
+  private millFoot: THREE.Mesh | null = null;
+
+  private clearMills() {
+    for (const v of this.millViews.values()) { this.scene.remove(v.obj); disposeTree(v.obj); }
+    this.millViews.clear();
+    if (this.millGhost) { this.scene.remove(this.millGhost); disposeTree(this.millGhost); this.millGhost = null; }
+    if (this.millFoot) this.millFoot.visible = false;
+  }
+
+  /** Keeps one model per mill in sync: a pop when built or grown, turning sails, and a hop and coins when it pays. */
+  private syncMills(g: Game, now: number) {
+    const seen = new Set<Mill>();
+    for (const m of g.mills ?? []) {
+      seen.add(m);
+      const stage = millStageOf(m);
+      let v = this.millViews.get(m);
+      if (!v || v.stage !== stage) {
+        const grown = !!v;
+        if (v) { this.scene.remove(v.obj); disposeTree(v.obj); }
+        const obj = makeMill(stage);
+        addOutlines(obj);
+        obj.position.set(wx(m.x), 0, wz(m.y));
+        this.scene.add(obj);
+        v = { obj, stage, builtAt: grown ? now - 0.12 : now, payAt: m.payAt, payKick: -9, phase: (m.x * 13 + m.y * 7) % 6.28 };
+        this.millViews.set(m, v);
+        this.puff(wx(m.x), 0.1, wz(m.y), '#efe2c4', grown ? 10 : 16, 1.2);
+      }
+      if (m.payAt !== v.payAt) {
+        v.payAt = m.payAt;
+        v.payKick = now;
+        this.puff(wx(m.x), 0.9, wz(m.y), MILL.color, 12, 0.9, 2.5);
+      }
+      const pay = kick(now, v.payKick, 0.6), ph = v.phase;
+      const s = TOWER_SCALE * easeOutBack(clamp01((now - v.builtAt) / 0.45));
+      v.obj.scale.set(s * (1 + 0.06 * pay), s * (1 + 0.12 * pay), s * (1 + 0.06 * pay));
+      const sails = v.obj.getObjectByName('spin');
+      if (sails) sails.rotation.z = -(now * (0.5 + 0.25 * stage) + ph + pay * 2.5);
+      const flag = v.obj.getObjectByName('flag');
+      if (flag) flag.rotation.y = Math.sin(now * 3 + ph) * 0.35;
+      const sw = v.obj.getObjectByName('swing');
+      if (sw) sw.rotation.z = Math.sin(now * 1.8 + ph) * 0.07;
+      const coin = v.obj.getObjectByName('float');
+      if (coin) {
+        coin.position.y = (coin.userData.y0 ??= coin.position.y) + Math.sin(now * 1.6 + ph) * 0.03 + pay * 0.1;
+        coin.rotation.y = now * 1.2 + pay * 6;
+      }
+    }
+    for (const [m, v] of this.millViews) {
+      if (!seen.has(m)) {
+        this.puff(v.obj.position.x, 0.2, v.obj.position.z, '#cfc3ad', 18, 1.5);
+        this.scene.remove(v.obj); disposeTree(v.obj); this.millViews.delete(m);
+      }
+    }
+    this.millCursor(g);
+  }
+
+  /** The see-through mill under the pointer while placing one, and a ring under the selected mill. */
+  private millCursor(g: Game) {
+    if (!this.millFoot) {
+      this.millFoot = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.43, 40), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, depthWrite: false }));
+      this.millFoot.rotation.x = -Math.PI / 2;
+      this.scene.add(this.millFoot);
+    }
+    const foot = this.millFoot, mat = foot.material as THREE.MeshBasicMaterial;
+    const hover = g.millBuild && !g.build ? g.hover : null;
+    if (hover && !this.millGhost) {
+      const obj = makeMill(1);
+      obj.scale.setScalar(TOWER_SCALE);
+      obj.traverse((o) => {
+        const me = o as THREE.Mesh;
+        if (!me.isMesh) return;
+        const mm = (me.material as THREE.Material).clone();
+        mm.transparent = true; mm.opacity = 0.55; mm.depthWrite = false;
+        me.material = mm; me.castShadow = false;
+      });
+      this.millGhost = obj;
+      this.scene.add(obj);
+    } else if (!hover && this.millGhost) {
+      this.scene.remove(this.millGhost); disposeTree(this.millGhost); this.millGhost = null;
+    }
+    if (hover) {
+      const ok = canBuild(g, hover.x, hover.y) && canAffordMill(g);
+      foot.visible = true;
+      foot.position.set(wx(hover.x), 0.03, wz(hover.y));
+      mat.color.set(ok ? '#ffffff' : '#ff4f5e');
+      this.millGhost!.position.set(wx(hover.x), 0, wz(hover.y));
+      this.millGhost!.visible = ok;
+    } else if (g.millSelected && g.mills?.includes(g.millSelected)) {
+      foot.visible = true;
+      foot.position.set(wx(g.millSelected.x), 0.03, wz(g.millSelected.y));
+      mat.color.set('#ffe7a8');
+    } else foot.visible = false;
+  }
+  // ---------- end economy buildings ----------
 
   // ---------- world ----------
 
@@ -1248,8 +1378,7 @@ export class GameView {
       this.heartFlame.color.set(C.flame).lerp(new THREE.Color('#c2412a'), 1 - health).multiplyScalar(1.2 + 0.8 * health);
       this.heartLight.intensity = (1.5 + 3 * health) * beat;
     }
-    const swirl = this.portal?.getObjectByName('swirl');
-    if (swirl) { swirl.rotation.z = now * 1.6; swirl.scale.setScalar(1 + Math.sin(now * 3) * 0.05); }
+    this.animateRifts(g, now);
     for (const m of this.mills) m.rotation.z = now * 0.6;
     for (const f of this.flickers) f.scale.setScalar(1 + Math.sin(now * 13 + f.id) * 0.06);
 
@@ -1309,7 +1438,73 @@ export class GameView {
     }
     ctx.globalAlpha = 1;
     this.drawComboWords(g, scale);
+    this.drawTerrainHint(g, scale);
   }
+
+  // ---------- terrain and rifts that move ----------
+
+  /** Ground height under a simulation point, never below the grass: towers stand on hills, not in hollows. */
+  private standY(x: number, y: number) {
+    return this.ground ? Math.max(0, this.ground(wx(x), wz(y))) : 0;
+  }
+
+  /** How far a walking shadow sinks where the road wades through water (flyers stay up). */
+  private wade(e: Enemy, x: number, z: number) {
+    if (!this.ground || e.def.traits.includes('flying')) return 0;
+    const h = this.ground(x, z);
+    return h < -0.06 ? Math.max(WATER_LEVEL - 0.08, h + 0.05) : 0;
+  }
+
+  /**
+   * Every rift's swirl turns; on a map with several rifts the one the next (or current) wave comes
+   * from opens wide and bright, while the others close to a slow ember.
+   */
+  private animateRifts(g: Game, now: number) {
+    const rifts = this.portal?.children ?? [];
+    const many = riftCount(g.map) > 1;
+    const next = g.active ? g.rift : waveRift(g.map, g.wave + 1);
+    const dt = Math.min(0.1, now - (this.riftT || now));
+    this.riftT = now;
+    rifts.forEach((rift, i) => {
+      const want = !many || i === next ? 1 : 0.35;
+      this.riftOpen[i] = (this.riftOpen[i] ?? 1) + (want - (this.riftOpen[i] ?? 1)) * (1 - Math.exp(-dt * 4));
+      const open = this.riftOpen[i];
+      const swirl = rift.getObjectByName('swirl');
+      if (swirl) { swirl.rotation.z = now * (0.5 + 1.1 * open); swirl.scale.setScalar((0.55 + 0.45 * open) * (1 + Math.sin(now * 3 + i) * 0.05 * open)); }
+    });
+  }
+  private riftT = 0;
+
+  /** While placing a tower or the Warden, a short line over the ghost says what the ground there does. */
+  private drawTerrainHint(g: Game, scale: number) {
+    const hover = g.build ? g.hover : null;
+    if (!hover || !canBuild(g, hover.x, hover.y)) return;
+    const s = L().terrain, lines: string[] = [];
+    const isHero = g.build === 'hero';
+    if (reachAt(g.map, hover.x, hover.y) > 1) lines.push(s.hill(Math.round((HILL_REACH - 1) * 100)));
+    const range = (isHero ? WEAPONS[g.loadout.weapon].range : TOWERS[g.build as TowerType].range) * reachAt(g.map, hover.x, hover.y) * T;
+    if (woodsNear(g.map, hover.x, hover.y, range)) {
+      const kind = isHero ? (WEAPONS[g.loadout.weapon].kind === 'wave' ? 'wave' : 'shot') : TOWERS[g.build as TowerType].kind;
+      if (kind === 'shot') lines.push(s.woods);
+      else if (kind === 'shell') lines.push(s.arcs);
+    }
+    if (!lines.length) return;
+    const ctx = this.overlay;
+    const { sx, sy } = this.toScreen(wx(hover.x), this.standY(hover.x, hover.y) + 1.5, wz(hover.y));
+    ctx.font = `800 ${Math.round(14 * Math.max(0.8, scale))}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 4;
+    lines.forEach((text, i) => {
+      const y = sy - (lines.length - 1 - i) * 18 * Math.max(0.8, scale);
+      ctx.strokeStyle = 'rgba(40,24,40,0.9)';
+      ctx.strokeText(text, sx, y);
+      ctx.fillStyle = '#ffe7a8';
+      ctx.fillText(text, sx, y);
+    });
+  }
+  // ---------- end terrain and rifts that move ----------
 
   // ---------- combos between towers ----------
 

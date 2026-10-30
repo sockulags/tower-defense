@@ -4,7 +4,8 @@ import { L } from '../i18n';
 import { metaDamage, metaDiscount, towerUnlocked } from '../save';
 import { sfx } from '../audio';
 import { burst, floatText } from './fx';
-import { distToPath } from './path';
+import { distToPaths } from './path';
+import { reachAt, terrainBlocksBuild } from './terrain'; // terrain that matters
 import { boonDiscount, boonStats } from './boons'; // boons between waves
 import type { Branch, Enemy, Game, Stats, Tower, TowerAttrs, TowerType } from '../types';
 
@@ -28,6 +29,9 @@ export function stats(t: Tower): Stats {
   if (t.type === 'frost') { if (b === 0) s.freeze = 0.2; if (b === 1) { s.area = true; s.range *= 1.15; } }
   if (t.type === 'pulse') { if (b === 0) s.burn = s.dmg * 0.7; if (b === 1) { s.rate *= 0.7; s.stun = 0.25; } }
   if (t.type === 'star') { if (b === 0) { s.splash *= 1.6; s.dmg *= 1.4; } if (b === 1) s.shards = 5; }
+  // The fifth tower: Kite Flock throws three harpoons at flyers; Whaler one huge, slower harpoon.
+  if (t.type === 'kite') { if (b === 0) { s.targets = 3; s.rate *= 0.85; } if (b === 1) { s.dmg *= 2.2; s.rate *= 1.25; s.range *= 1.15; } }
+  s.range *= t.reach ?? 1; // terrain: a tower on a hill reaches further
   s.attrs = towerAttrs(t.type, b);
   boonStats(t, s); // boons between waves
   return s;
@@ -70,11 +74,13 @@ export const ROAD_CLEARANCE = 0.8 * T;
 export const TOWER_SPACING = 0.95 * T;
 const EDGE = 0.42 * T;
 
-/** Towers stand anywhere on the grass: inside the board, off the road and not overlapping another tower. */
+/** Towers stand anywhere on the grass: inside the board, off every road, out of woods and water, and not overlapping another tower. */
 export function canBuild(g: Game, x: number, y: number) {
   if (x < EDGE || y < EDGE || x > COLS * T - EDGE || y > ROWS * T - EDGE) return false;
-  if (distToPath(g.path, x, y) < ROAD_CLEARANCE) return false;
+  if (distToPaths(g.paths ?? [g.path], x, y) < ROAD_CLEARANCE) return false; // rifts that move: every road
+  if (terrainBlocksBuild(g.map, x, y)) return false; // terrain: trees and water keep towers out
   if (g.hero && Math.hypot(g.hero.x - x, g.hero.y - y) < TOWER_SPACING) return false;
+  if (g.mills?.some((m) => Math.hypot(m.x - x, m.y - y) < TOWER_SPACING)) return false; // economy buildings: mills take room too
   return !g.towers.some((t) => Math.hypot(t.x - x, t.y - y) < TOWER_SPACING);
 }
 
@@ -86,12 +92,15 @@ export const towerAt = (g: Game, x: number, y: number) =>
 export function placeTower(g: Game, type: TowerType, x: number, y: number, anyTower = false): Tower | null {
   const d = TOWERS[type];
   if (g.gold < d.cost || !canBuild(g, x, y) || (!anyTower && !towerUnlocked(type))) return null;
+  if (!anyTower && g.squad && !g.squad.includes(type)) return null; // the squad: only the four the run brought
   g.gold -= d.cost;
   const t: Tower = {
     type, x, y, level: 1, branch: null, cd: 0,
     invested: d.cost, angle: -Math.PI / 2, kills: 0, dealt: 0, nick: Math.floor(Math.random() * 1000), flash: 0, boost: 0,
     mods: g.boons.mods, // boons between waves
   };
+  const reach = reachAt(g.map, x, y); // terrain: a hill reaches further
+  if (reach !== 1) t.reach = reach;
   g.towers.push(t);
   sfx.build();
   burst(g, t.x, t.y, d.color, 10);

@@ -6,6 +6,8 @@
 //   npm run balance -- --waves 30 --seed 7            survival wave cap, first seed
 //   npm run balance -- --json                         raw reports for scripts
 //   npm run balance -- --boons random                 how bots pick boons: greedy (default) or random
+//   npm run balance -- --mills all                    economy buildings: compare how bots use mills
+//   npm run balance -- --strategy mixed --squad each  the squad: every squad of four, to find the best per map
 //
 // Strategies: mixed (sensible default), spread (every tower, no upgrades), spark, frost and pulse
 // (only that tower), star (rush Starfall), warden (a few towers, then the Warden first).
@@ -39,6 +41,22 @@ try {
     survivalWaves: Number(opt('waves', '40')),
     boonPick: opt('boons', 'greedy'),
   };
+  // Economy buildings (lab experiment): --mills none,early,greedy,late,safe (or all) compares mill
+  // profiles side by side; without the flag no bot builds mills.
+  const mills = opt('mills', '');
+  if (mills) {
+    o.mills = list(mills, bots.MILL_PROFILES);
+    for (const m of o.mills) if (!bots.MILL_PROFILES.includes(m)) throw new Error(`Unknown mill profile "${m}". Profiles: ${bots.MILL_PROFILES.join(', ')}`);
+  }
+  // The squad: --squad auto (each bot picks four for the map), each (every squad of four, its own
+  // rows, to find the best squad per map) or a list such as spark,frost,pulse,kite. Without the
+  // flag bots bring the first four towers.
+  const squad = opt('squad', '');
+  if (squad) {
+    const { TOWER_ORDER } = await server.ssrLoadModule('/src/data/towers.ts');
+    o.squad = squad === 'auto' || squad === 'each' ? squad : list(squad, TOWER_ORDER);
+    if (Array.isArray(o.squad)) for (const t of o.squad) if (!TOWER_ORDER.includes(t)) throw new Error(`Unknown tower "${t}". Towers: ${TOWER_ORDER.join(', ')}`);
+  }
   const started = performance.now();
   const reports = bots.runBatch(o);
   if (args.includes('--json')) console.log(JSON.stringify(reports, null, 1));

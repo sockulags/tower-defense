@@ -12,6 +12,7 @@ import { L } from '../i18n';
 import { sfx } from '../audio';
 import { burst, floatText } from './fx';
 import { posAt } from './path';
+import { roadOf } from './terrain'; // rifts that move: each boss walks its own road
 import { waveSpec } from './waves';
 import type { BossState, Enemy, EnemyType, Game, MapDef } from '../types';
 
@@ -119,7 +120,7 @@ export function updateBosses(g: Game, dt: number) {
       continue;
     }
     if (def.steal) {
-      if (!b.fleeing && e.d >= g.path.len * def.steal.at) steal(g, e);
+      if (!b.fleeing && e.d >= roadOf(g, e).len * def.steal.at) steal(g, e);
       else if (b.fleeing && e.d <= 0) escape(g, e);
       continue;
     }
@@ -141,7 +142,7 @@ function escape(g: Game, e: Enemy) {
   const b = state(e);
   e.dead = true;
   if (!g.dev?.god) g.lives -= e.def.leak;
-  const p = posAt(g.path, 0);
+  const p = posAt(roadOf(g, e), 0);
   floatText(g, p.x + T, p.y - 20, L().bosses.escaped(b.loot), BOSS_COLORS.steal, 1.8, 17);
   floatText(g, p.x + T, p.y + 4, L().fx.lifeLost(e.def.leak), '#ff5f6d', 1.4, 15);
   sfx.leak();

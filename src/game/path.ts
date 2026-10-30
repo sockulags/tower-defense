@@ -1,8 +1,9 @@
 import { COLS, ROWS, T } from '../config';
 import type { MapDef, Path, Pt } from '../types';
 
-export function buildPath(map: MapDef): Path {
-  const pts = map.pts.map(([x, y]) => ({ x: (x + 0.5) * T, y: (y + 0.5) * T }));
+/** A road from tile waypoints; by default the map's main road (rifts that move pass another). */
+export function buildPath(map: MapDef, road: [number, number][] = map.pts): Path {
+  const pts = road.map(([x, y]) => ({ x: (x + 0.5) * T, y: (y + 0.5) * T }));
   const segs: Path['segs'] = [];
   let len = 0;
   for (let i = 0; i < pts.length - 1; i++) {
@@ -12,8 +13,8 @@ export function buildPath(map: MapDef): Path {
   }
   // Waypoints are axis-aligned, so walk each segment tile by tile.
   const tiles = new Set<string>();
-  for (let i = 0; i < map.pts.length - 1; i++) {
-    const [x0, y0] = map.pts[i], [x1, y1] = map.pts[i + 1];
+  for (let i = 0; i < road.length - 1; i++) {
+    const [x0, y0] = road[i], [x1, y1] = road[i + 1];
     const sx = Math.sign(x1 - x0), sy = Math.sign(y1 - y0);
     let x = x0, y = y0;
     for (;;) {
@@ -49,3 +50,6 @@ export function distToPath(p: Path, x: number, y: number) {
   }
   return best;
 }
+
+/** Rifts that move: shortest distance from a point to any of the roads. */
+export const distToPaths = (paths: Path[], x: number, y: number) => Math.min(...paths.map((p) => distToPath(p, x, y)));

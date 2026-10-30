@@ -7,8 +7,9 @@
 // lab's gallery ('gallery' mode). The lab's sandbox is an ordinary run with `game.dev` switches.
 import { MAX_LEVEL, T } from '../config';
 import { HERO_MAX_LEVEL, heroUpgradeCost } from '../data/hero';
-import { TOWERS, TOWER_ORDER } from '../data/towers';
+import { TOWERS } from '../data/towers';
 import { posAt } from '../game/path';
+import { waveRift } from '../game/terrain'; // rifts that move: the horn waits at the next wave's rift
 import { canUpgradeHero, castAbility, heroStats, placeHero, upgradeHero } from '../game/hero';
 import { createGame, giveUp, startWave, update } from '../game/run';
 import {
@@ -35,6 +36,10 @@ import { boonChoiceHtml, boonNoteHtml, boonStripHtml } from './boons';
 import type { BoonId } from '../data/boons';
 // Bosses: arrival banner and health bars.
 import { updateBossUi } from './boss';
+// Economy buildings (lab experiment): the mill medallion, placing mills and their card.
+import { appendMillMedal } from './mills';
+// The squad: the belt shows the four towers this run brings.
+import { beltTowers, inSquad, playerSquad } from '../game/squad';
 import type { Game, MapId, Stats, Tower, TowerType } from '../types';
 
 type Mode = 'menu' | 'play' | 'gallery';
@@ -75,6 +80,7 @@ export function startRun(mapId: MapId, dev = false) {
     ended: (win) => { if (g.dev) g.over = false; else showEnd(win, false); },
   });
   if (dev) g.dev = { god: true, freeGold: true, allTowers: true };
+  g.squad = playerSquad(); // the squad
   game = g;
   quitArmed = false;
   clearTextCache();
@@ -135,7 +141,7 @@ export function frame(dt: number) {
   updateBoons(g); // boons between waves
 }
 
-const canUseTower = (g: Game, type: TowerType) => !!g.dev?.allTowers || towerUnlocked(type);
+const canUseTower = (g: Game, type: TowerType) => !!g.dev?.allTowers || (towerUnlocked(type) && inSquad(g, type)); // the squad
 
 // ---------- static text and icons ----------
 
@@ -194,6 +200,7 @@ function updateHud(g: Game) {
 
   for (const b of Array.from($('belt').children) as HTMLButtonElement[]) {
     const type = b.dataset.type as TowerType | 'hero';
+    if (!type) continue; // economy buildings: the mill medallion keeps itself up to date (ui/mills.ts)
     if (type === 'hero') {
       b.classList.toggle('sel', g.build === 'hero' || g.heroSelected);
       b.classList.toggle('placed', !!g.hero);
@@ -269,11 +276,22 @@ function updateWavePreview(g: Game) {
 /** Keeps world-anchored controls (wave horn, card) pinned to what they belong to. */
 function placeAnchors(g: Game) {
   const w = cv.clientWidth, h = cv.clientHeight;
-  const entry = posAt(g.path, T * 0.9);
+  const entry = posAt(g.paths[g.active ? g.rift : waveRift(g.map, g.wave + 1)] ?? g.path, T * 0.9); // rifts that move
   const e = view.screenOf(entry.x, entry.y, 0.6);
   const call = $('call');
   call.style.left = `${Math.min(w - 260, Math.max(90, e.sx))}px`;
-  call.style.top = `${Math.min(h - 220, Math.max(70, e.sy))}px`;
+  const top = Math.min(h - 220, Math.max(70, e.sy));
+  call.style.top = `${top}px`;
+  // A rift at the bottom edge would put the horn and its preview under the build belt: lift them clear.
+  const belt = $('belt').getBoundingClientRect();
+  const box = call.getBoundingClientRect();
+  const pv = document.getElementById('wavePreview')?.getBoundingClientRect();
+  const has = pv && pv.width > 0;
+  const bottom = has ? Math.max(box.bottom, pv.bottom) : box.bottom;
+  const left = has ? Math.min(box.left, pv.left) : box.left, right = has ? Math.max(box.right, pv.right) : box.right;
+  if (belt.width > 0 && right > belt.left && left < belt.right && bottom > belt.top - 8) {
+    call.style.top = `${Math.max(70, top - (bottom - belt.top + 8))}px`;
+  }
 
   const card = $('card');
   const anchor = g.selected ?? (g.heroSelected ? g.hero : null);
@@ -309,7 +327,7 @@ export function renderBelt() {
   hb.onpointerleave = () => { $('tip').hidden = true; };
   belt.appendChild(hb);
 
-  TOWER_ORDER.forEach((type, i) => {
+  beltTowers(g).forEach((type, i) => { // the squad: the run's four towers, or every tower in the lab
     const d = TOWERS[type], locked = !canUseTower(g, type);
     const b = document.createElement('button');
     b.className = 'medal' + (locked ? ' locked' : '') + (g.build === type ? ' sel' : '');
@@ -323,6 +341,7 @@ export function renderBelt() {
     b.onpointerleave = () => { $('tip').hidden = true; };
     belt.appendChild(b);
   });
+  appendMillMedal(belt); // economy buildings: only when the lab's mills switch is on
 }
 
 function placeTip(anchor: HTMLElement) {
@@ -568,7 +587,7 @@ document.addEventListener('keydown', (ev) => {
   const g = game;
   if (!g || mode !== 'play') return;
   if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLSelectElement) return;
-  if (ev.key >= '1' && ev.key <= '4') selectBuild(TOWER_ORDER[Number(ev.key) - 1]);
+  if (ev.key >= '1' && ev.key <= '9') { const type = beltTowers(g)[Number(ev.key) - 1]; if (type) selectBuild(type); } // the squad: keys follow the belt
   else if (ev.key === 'h' || ev.key === 'H') selectHeroMedal();
   else if (ev.key === 'q' || ev.key === 'Q') cast();
   else if (ev.key === ' ') { ev.preventDefault(); initAudio(); startWave(g); }

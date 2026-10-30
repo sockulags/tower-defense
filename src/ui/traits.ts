@@ -4,6 +4,7 @@
 import { ENEMIES } from '../data/enemies';
 import { towerAttrs } from '../game/towers';
 import { wavePreview } from '../game/waves';
+import { riftCount, riftSide, waveRift } from '../game/terrain'; // rifts that move
 import { enemyPortraits } from '../three/view';
 import { L } from '../i18n';
 import type { Branch, EnemyType, MapDef, Trait, TowerType } from '../types';
@@ -65,7 +66,7 @@ export function renderWavePreview(el: HTMLElement, map: MapDef, wave: number) {
     <button class="wp-chip" data-type="${type}" aria-label="${esc(s.traits.count(count, s.enemies[type]))}">
       <img src="${portraits[type]}" alt=""><b class="num">${count}</b>
       ${ENEMIES[type].traits.length ? `<span class="wp-traits">${traitBadges(ENEMIES[type].traits)}</span>` : ''}
-    </button>`).join('')}</div><p class="wp-say" hidden></p>`;
+    </button>`).join('')}</div>${riftCount(map) > 1 ? `<p class="wp-rift">${s.terrain.rift[riftSide(map, waveRift(map, wave))]}</p>` : ''}<p class="wp-say" hidden></p>`;
   const say = el.querySelector<HTMLElement>('.wp-say')!;
   let pinned: string | null = null;
   const show = (type: EnemyType | null) => {
