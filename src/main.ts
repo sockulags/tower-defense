@@ -3,7 +3,7 @@ import { initAudio } from './audio';
 import { locale, setLocale } from './i18n';
 import { renderMenu, showMenu } from './ui/menu';
 import { nav } from './ui/nav';
-import { currentGame, frame, startRun } from './ui/play';
+import { currentGame, currentView, frame, startRun } from './ui/play';
 
 nav.menu = showMenu;
 nav.play = startRun;
@@ -25,6 +25,6 @@ renderMenu();
 // Dev-only handle for driving the game from the browser console.
 if (import.meta.env.DEV) {
   Promise.all([import('./game/run'), import('./game/towers')]).then(([run, towers]) => {
-    (window as unknown as Record<string, unknown>).__dw = { currentGame, startRun, ...run, ...towers };
+    (window as unknown as Record<string, unknown>).__dw = { currentGame, currentView, startRun, ...run, ...towers };
   });
 }

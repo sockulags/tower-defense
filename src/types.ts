@@ -51,7 +51,7 @@ export type Branch = 0 | 1 | null;
 
 export interface Tower {
   type: TowerType;
-  tx: number; ty: number;
+  /** Free position in simulation pixels; towers are not tied to a grid. */
   x: number; y: number;
   level: number;
   branch: Branch;
@@ -144,7 +144,8 @@ export interface Game {
   over: boolean;
   selected: Tower | null;
   build: TowerType | null;
-  hover: { tx: number; ty: number } | null;
+  /** Pointer position on the board in simulation pixels. */
+  hover: { x: number; y: number } | null;
   t: number;
   shake: number;
   kills: number;

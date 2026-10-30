@@ -3,7 +3,7 @@ import { TOWERS, TOWER_ORDER } from '../data/towers';
 import { createGame, giveUp, startWave, update } from '../game/run';
 import { GameView } from '../three/view';
 import {
-  canUpgrade, chooseBranch, needsBranch, nickname, placeTower, sell, sellValue, stats, upgrade, upgradeCost, NAMED_LEVEL,
+  canUpgrade, chooseBranch, needsBranch, nickname, placeTower, sell, sellValue, stats, towerAt, upgrade, upgradeCost, NAMED_LEVEL,
 } from '../game/towers';
 import { L, fmt } from '../i18n';
 import { initAudio, isMuted, setMuted } from '../audio';
@@ -19,6 +19,8 @@ const cv = $<HTMLCanvasElement>('cv');
 const view = new GameView(cv, $<HTMLCanvasElement>('cv2d'));
 
 export const currentGame = () => game;
+export const currentView = () => view;
+if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__view = view;
 
 export function startRun(mapId: MapId) {
   game = createGame(mapId, {
@@ -186,21 +188,22 @@ function showEnd(win: boolean, gaveUp: boolean) {
 }
 
 // ---------- input ----------
-const tileFromEvent = (ev: PointerEvent) => view.pickTile(ev.clientX, ev.clientY) ?? { tx: -1, ty: -1 };
+const pointFromEvent = (ev: PointerEvent) => view.pickPoint(ev.clientX, ev.clientY);
 
-cv.addEventListener('pointermove', (ev) => { if (game) game.hover = tileFromEvent(ev); });
+cv.addEventListener('pointermove', (ev) => { if (game) game.hover = pointFromEvent(ev); });
 cv.addEventListener('pointerleave', () => { if (game) game.hover = null; });
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
 cv.addEventListener('pointerdown', (ev) => {
   initAudio();
   const g = game;
   if (!g || g.over) return;
-  const { tx, ty } = tileFromEvent(ev);
-  g.hover = { tx, ty };
   if (ev.button === 2) { g.build = null; renderPalette(); renderInfo(); return; }
-  const t = g.towers.find((t) => t.tx === tx && t.ty === ty);
+  const p = pointFromEvent(ev);
+  g.hover = p;
+  if (!p) return;
+  const t = towerAt(g, p.x, p.y);
   if (t) { g.selected = t; g.build = null; renderPalette(); renderInfo(); return; }
-  if (g.build) { placeTower(g, g.build, tx, ty); return; }
+  if (g.build) { placeTower(g, g.build, p.x, p.y); return; }
   if (g.selected) { g.selected = null; renderInfo(); }
 });
 

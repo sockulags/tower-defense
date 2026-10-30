@@ -4,6 +4,7 @@ import { L } from '../i18n';
 import { metaDamage, metaDiscount, towerUnlocked } from '../save';
 import { sfx } from '../audio';
 import { burst, floatText } from './fx';
+import { distToPath } from './path';
 import type { Game, Stats, Tower, TowerType } from '../types';
 
 /** At this level the next upgrade is a choice between two branches. */
@@ -32,18 +33,28 @@ export function stats(t: Tower): Stats {
 export const needsBranch = (t: Tower) => t.level === BRANCH_LEVEL && t.branch === null;
 export const nickname = (t: Tower) => { const n = L().nicknames; return n[t.nick % n.length]; };
 
-export function canBuild(g: Game, tx: number, ty: number) {
-  if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return false;
-  if (g.path.tiles.has(tx + ',' + ty)) return false;
-  return !g.towers.some((t) => t.tx === tx && t.ty === ty);
+/** How far a tower's centre must stay from the road centreline, and from another tower. */
+export const ROAD_CLEARANCE = 0.8 * T;
+export const TOWER_SPACING = 0.95 * T;
+const EDGE = 0.42 * T;
+
+/** Towers stand anywhere on the grass: inside the board, off the road and not overlapping another tower. */
+export function canBuild(g: Game, x: number, y: number) {
+  if (x < EDGE || y < EDGE || x > COLS * T - EDGE || y > ROWS * T - EDGE) return false;
+  if (distToPath(g.path, x, y) < ROAD_CLEARANCE) return false;
+  return !g.towers.some((t) => Math.hypot(t.x - x, t.y - y) < TOWER_SPACING);
 }
 
-export function placeTower(g: Game, type: TowerType, tx: number, ty: number): Tower | null {
+/** The tower whose footprint covers a point, if any. */
+export const towerAt = (g: Game, x: number, y: number) =>
+  g.towers.find((t) => Math.hypot(t.x - x, t.y - y) < TOWER_SPACING / 2);
+
+export function placeTower(g: Game, type: TowerType, x: number, y: number): Tower | null {
   const d = TOWERS[type];
-  if (g.gold < d.cost || !canBuild(g, tx, ty) || !towerUnlocked(type)) return null;
+  if (g.gold < d.cost || !canBuild(g, x, y) || !towerUnlocked(type)) return null;
   g.gold -= d.cost;
   const t: Tower = {
-    type, tx, ty, x: (tx + 0.5) * T, y: (ty + 0.5) * T, level: 1, branch: null, cd: 0,
+    type, x, y, level: 1, branch: null, cd: 0,
     invested: d.cost, angle: -Math.PI / 2, kills: 0, dealt: 0, nick: Math.floor(Math.random() * 1000), flash: 0,
   };
   g.towers.push(t);

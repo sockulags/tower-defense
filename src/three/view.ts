@@ -3,93 +3,141 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { COLS, ROWS, T } from '../config';
 import { TOWERS } from '../data/towers';
 import { canBuild, needsBranch, stats } from '../game/towers';
 import { heartOf } from '../game/path';
-import { glow, makeBoard, makeEnemy, makeHeart, makePortal, makeTower, tileToWorld } from './models';
+import { C, gem, glow, makeBoard, makeEnemy, makeHeart, makePortal, makeTower, tileToWorld } from './models';
 import type { Enemy, Fx, Game, Shot, Tower, TowerType } from '../types';
 
-const SKY = '#161735';
 const FONT = '"Alegreya Sans", sans-serif';
-const MAX_PARTICLES = 1200;
+const FOG = '#f3d6ae';
+const MAX_POINTS = 1600;
 /** Enemies are drawn a little larger than their hit radius so they read at a distance. */
-const ENEMY_SCALE = 1.25;
+const ENEMY_SCALE = 1.45;
+/** Towers likewise read better a touch larger than their footprint in the simulation. */
+const TOWER_SCALE = 1.2;
 
 /** Simulation pixels to world units: one tile is one unit, the board is centred on the origin. */
 const wx = (x: number) => x / T - COLS / 2;
 const wz = (y: number) => y / T - ROWS / 2;
 
-interface TowerView { obj: THREE.Group; key: string; pool: THREE.Mesh; yaw: number }
-interface EnemyView { obj: THREE.Group; lx: number; lz: number; yaw: number }
+const easeOutBack = (t: number) => { const c = 1.9; return 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2; };
+const clamp01 = (t: number) => Math.max(0, Math.min(1, t));
+/** 1 right after an event, easing to 0 over `dur` seconds. */
+const kick = (now: number, at: number, dur: number) => { const p = clamp01((now - at) / dur); return (1 - p) * (1 - p); };
+
+// ---------- outlines ----------
+
+/** Inverted-hull outline: a back-face copy of each mesh pushed out along its normals. */
+const OUTLINE = new THREE.ShaderMaterial({
+  uniforms: { thickness: { value: 0.014 }, color: { value: new THREE.Color('#2a1c2c') } },
+  vertexShader: 'uniform float thickness; void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position + normal * thickness, 1.0); }',
+  fragmentShader: 'uniform vec3 color; void main() { gl_FragColor = vec4(color, 1.0); }',
+  side: THREE.BackSide,
+});
+
+function addOutlines(root: THREE.Object3D) {
+  const targets: THREE.Mesh[] = [];
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && !m.userData.noOutline && m.material instanceof THREE.MeshToonMaterial && !m.material.transparent) targets.push(m);
+  });
+  for (const m of targets) {
+    const hull = new THREE.Mesh(m.geometry, OUTLINE);
+    hull.userData.noOutline = true;
+    m.add(hull);
+  }
+}
 
 function disposeTree(obj: THREE.Object3D) {
   obj.traverse((o) => { if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose(); });
 }
 
-/** A soft round texture for ground light pools, made once. */
-function makePoolTexture() {
+const byName = (root: THREE.Object3D, name: string) => {
+  const out: THREE.Object3D[] = [];
+  root.traverse((o) => { if (o.name === name) out.push(o); });
+  return out;
+};
+
+// ---------- per-object view state ----------
+
+interface TowerView {
+  obj: THREE.Group; key: string; yaw: number; lastCd: number; fireAt: number; builtAt: number; phase: number;
+  aim?: THREE.Object3D; recoil: THREE.Object3D[]; swings: THREE.Object3D[]; cores: THREE.Object3D[];
+  flames?: THREE.Object3D; embers?: THREE.Object3D; float?: THREE.Object3D; orbit?: THREE.Object3D;
+  mist?: THREE.Object3D; spin?: THREE.Object3D; arcs: THREE.Object3D[]; flag?: THREE.Object3D; badge?: THREE.Object3D;
+}
+
+interface EnemyView {
+  obj: THREE.Group; body: THREE.Object3D; lx: number; lz: number; yaw: number;
+  lastHit: number; hitAt: number; bornAt: number; mats: THREE.MeshToonMaterial[]; color: THREE.Color;
+  parts: Record<string, THREE.Object3D | undefined>;
+}
+
+interface Dying { obj: THREE.Group; at: number; kill: boolean; scale: number; mats: THREE.MeshToonMaterial[] }
+
+interface Mote { x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number; max: number; color: THREE.Color; gravity: number }
+
+function skyTexture() {
   const c = document.createElement('canvas');
-  c.width = c.height = 128;
+  c.width = 4; c.height = 256;
   const g = c.getContext('2d')!;
-  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, 'rgba(255,255,255,1)');
-  grad.addColorStop(0.35, 'rgba(255,255,255,0.45)');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  const grad = g.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#7fb2e5');
+  grad.addColorStop(0.55, '#c9d7e8');
+  grad.addColorStop(0.8, '#f8d9b0');
+  grad.addColorStop(1, '#f5b98a');
   g.fillStyle = grad;
-  g.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(c);
+  g.fillRect(0, 0, 4, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 export class GameView {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(30, 16 / 10, 0.1, 100);
+  private camera = new THREE.PerspectiveCamera(30, 16 / 10, 0.1, 120);
   private controls: OrbitControls;
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
   private overlay: CanvasRenderingContext2D;
   private raycaster = new THREE.Raycaster();
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private tmp = new THREE.Vector3();
 
   private world = new THREE.Group();
-  private game: Game | null = null;
   private towers = new Map<Tower, TowerView>();
   private enemies = new Map<Enemy, EnemyView>();
-  private shots = new Map<Shot, THREE.Mesh>();
+  private dying: Dying[] = [];
+  private shots = new Map<Shot, { mesh: THREE.Mesh; lx: number; lz: number }>();
   private rings = new Map<Fx, THREE.Mesh>();
   private heart: THREE.Group | null = null;
-  private heartLight = new THREE.PointLight('#ffae5c', 6, 7, 1.6);
+  private heartFlame: THREE.MeshBasicMaterial | null = null;
+  private heartLight = new THREE.PointLight('#ffb35c', 4, 6, 1.6);
   private portal: THREE.Group | null = null;
   private mills: THREE.Object3D[] = [];
+  private flickers: THREE.Object3D[] = [];
 
-  private poolTexture = makePoolTexture();
-  private particles: THREE.Points;
-  private pPos = new Float32Array(MAX_PARTICLES * 3);
-  private pCol = new Float32Array(MAX_PARTICLES * 3);
+  private motes: Mote[] = [];
+  private points: THREE.Points;
+  private pPos = new Float32Array(MAX_POINTS * 3);
+  private pCol = new Float32Array(MAX_POINTS * 3);
   private lines: THREE.LineSegments;
-  private fireflies: THREE.Points;
-  private fireflySeeds: { x: number; z: number; p: number; s: number }[] = [];
+  private pollen: THREE.Points;
+  private pollenSeeds: { x: number; z: number; p: number; s: number }[] = [];
 
-  private hoverTile: THREE.Mesh;
-  /** Tile lines, shown only while placing a tower so the board otherwise looks like open ground. */
-  private buildGrid = (() => {
-    const pts: number[] = [];
-    for (let x = 0; x <= COLS; x++) pts.push(x - COLS / 2, 0.01, -ROWS / 2, x - COLS / 2, 0.01, ROWS / 2);
-    for (let z = 0; z <= ROWS; z++) pts.push(-COLS / 2, 0.01, z - ROWS / 2, COLS / 2, 0.01, z - ROWS / 2);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
-    const grid = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: '#c9d6c4', transparent: true, opacity: 0.12, depthWrite: false }));
-    grid.visible = false;
-    return grid;
-  })();
+  private footprint: THREE.Mesh;
   private buildRing: THREE.Mesh;
   private selectRing: THREE.Mesh;
   private ghost: { type: TowerType; obj: THREE.Group } | null = null;
-  private shotGeo = new THREE.IcosahedronGeometry(1, 0);
-  private ringGeo = new THREE.RingGeometry(0.9, 1, 48);
-  private tmp = new THREE.Vector3();
+  private rangeGeo = new THREE.RingGeometry(0.975, 1, 72);
+  private ringGeo = new THREE.RingGeometry(0.88, 1, 48);
+  private boltGeo = new THREE.SphereGeometry(1, 10, 8);
+  private shardGeo = new THREE.OctahedronGeometry(1, 0);
 
   constructor(private canvas: HTMLCanvasElement, overlayCanvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -97,26 +145,28 @@ export class GameView {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
+    this.renderer.toneMappingExposure = 1.0;
     this.overlay = overlayCanvas.getContext('2d')!;
 
-    this.scene.background = new THREE.Color(SKY);
-    this.scene.fog = new THREE.Fog(SKY, 20, 38);
+    // Golden hour: a low warm sun casting long shadows, a cool sky fill, and a soft rim from behind.
+    this.scene.background = skyTexture();
+    this.scene.fog = new THREE.Fog(FOG, 30, 60);
     this.scene.add(this.world);
-
-    this.scene.add(new THREE.HemisphereLight('#7f86d6', '#2d2333', 1.15));
-    const moon = new THREE.DirectionalLight('#b9c2ff', 1.6);
-    moon.position.set(-7, 14, -5);
-    moon.castShadow = true;
-    moon.shadow.mapSize.set(2048, 2048);
-    Object.assign(moon.shadow.camera, { left: -11, right: 11, top: 9, bottom: -9, near: 1, far: 40 });
-    moon.shadow.bias = -0.0008;
-    moon.shadow.normalBias = 0.02;
-    this.scene.add(moon);
+    this.scene.add(new THREE.HemisphereLight('#d5e6ff', '#8a6b4c', 1.25));
+    const sun = new THREE.DirectionalLight('#ffd7a0', 2.4);
+    sun.position.set(-9, 8, 5);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 10, bottom: -10, near: 1, far: 40 });
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = 0.025;
+    this.scene.add(sun);
+    const rim = new THREE.DirectionalLight('#ffc2d6', 0.9);
+    rim.position.set(6, 5, -10);
+    this.scene.add(rim);
     this.scene.add(this.heartLight);
 
     // Right or middle drag turns the view, the wheel zooms; left click stays free for building.
-    // Limits keep the board readable: no panning, a modest turn and a mostly top-down tilt.
     this.controls = new OrbitControls(this.camera, canvas);
     this.controls.enablePan = false;
     this.controls.enableDamping = true;
@@ -133,49 +183,48 @@ export class GameView {
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloom = new UnrealBloomPass(new THREE.Vector2(960, 600), 0.75, 0.55, 0.82);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(960, 600), 0.35, 0.4, 1.05);
     this.composer.addPass(this.bloom);
+    this.composer.addPass(new ShaderPass({
+      uniforms: { tDiffuse: { value: null }, strength: { value: 0.22 } },
+      vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float strength; varying vec2 vUv;
+        void main() { vec4 c = texture2D(tDiffuse, vUv); float v = smoothstep(0.9, 0.3, length(vUv - 0.5) * 1.3);
+        c.rgb *= mix(1.0 - strength, 1.0, v); gl_FragColor = c; }`,
+    }));
     this.composer.addPass(new OutputPass());
 
     const pGeo = new THREE.BufferGeometry();
     pGeo.setAttribute('position', new THREE.BufferAttribute(this.pPos, 3));
     pGeo.setAttribute('color', new THREE.BufferAttribute(this.pCol, 3));
-    this.particles = new THREE.Points(pGeo, new THREE.PointsMaterial({
-      size: 0.09, vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    this.particles.frustumCulled = false;
-    this.scene.add(this.particles);
+    this.points = new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.075, vertexColors: true, depthWrite: false }));
+    this.points.frustumCulled = false;
+    this.scene.add(this.points);
 
     const lGeo = new THREE.BufferGeometry();
     lGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(400 * 6), 3));
-    this.lines = new THREE.LineSegments(lGeo, new THREE.LineBasicMaterial({ color: '#d9c8ff', transparent: true, opacity: 0.8 }));
+    this.lines = new THREE.LineSegments(lGeo, new THREE.LineBasicMaterial({ color: new THREE.Color(TOWERS.star.color).multiplyScalar(1.4) }));
     this.lines.frustumCulled = false;
     this.scene.add(this.lines);
 
     const fGeo = new THREE.BufferGeometry();
-    const fPos = new Float32Array(40 * 3);
-    for (let i = 0; i < 40; i++) {
-      this.fireflySeeds.push({ x: (Math.random() - 0.5) * (COLS + 1), z: (Math.random() - 0.5) * (ROWS + 1), p: Math.random() * 10, s: 0.3 + Math.random() * 0.5 });
+    for (let i = 0; i < 50; i++) {
+      this.pollenSeeds.push({ x: (Math.random() - 0.5) * (COLS + 2), z: (Math.random() - 0.5) * (ROWS + 2), p: Math.random() * 10, s: 0.2 + Math.random() * 0.4 });
     }
-    fGeo.setAttribute('position', new THREE.BufferAttribute(fPos, 3));
-    this.fireflies = new THREE.Points(fGeo, new THREE.PointsMaterial({
-      size: 0.07, color: '#d8ff9a', transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false,
-    }));
-    this.fireflies.frustumCulled = false;
-    this.scene.add(this.fireflies);
+    fGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(50 * 3), 3));
+    this.pollen = new THREE.Points(fGeo, new THREE.PointsMaterial({ size: 0.05, color: '#fff3cf', transparent: true, opacity: 0.8, depthWrite: false }));
+    this.pollen.frustumCulled = false;
+    this.scene.add(this.pollen);
 
-    this.hoverTile = new THREE.Mesh(new THREE.PlaneGeometry(0.96, 0.96), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.25, depthWrite: false }));
-    this.hoverTile.rotation.x = -Math.PI / 2;
-    this.hoverTile.position.y = 0.01;
+    this.footprint = new THREE.Mesh(new THREE.RingGeometry(0.34, 0.43, 40), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, depthWrite: false }));
+    this.footprint.rotation.x = -Math.PI / 2;
     this.buildRing = this.makeRangeRing();
     this.selectRing = this.makeRangeRing();
-    this.scene.add(this.hoverTile, this.buildRing, this.selectRing, this.buildGrid);
+    this.scene.add(this.footprint, this.buildRing, this.selectRing);
 
     new ResizeObserver(() => this.resize()).observe(canvas);
     this.resize();
   }
-
-  private rangeGeo = new THREE.RingGeometry(0.975, 1, 72);
 
   /** The default view: close to top-down, turned straight at the board. */
   resetCamera() {
@@ -185,11 +234,9 @@ export class GameView {
   }
 
   private makeRangeRing() {
-    // Kept dim so the bloom pass leaves it a thin line.
-    const ring = new THREE.Mesh(this.rangeGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.45, depthWrite: false, side: THREE.DoubleSide }));
+    const ring = new THREE.Mesh(this.rangeGeo, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.7, depthWrite: false, side: THREE.DoubleSide }));
     ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.02;
-    ring.scale.set(1, 1, 1);
+    ring.position.y = 0.03;
     ring.visible = false;
     return ring;
   }
@@ -208,53 +255,63 @@ export class GameView {
   }
 
   setGame(g: Game | null) {
-    for (const v of this.towers.values()) { this.scene.remove(v.obj, v.pool); disposeTree(v.obj); }
-    for (const v of this.enemies.values()) { this.scene.remove(v.obj); disposeTree(v.obj); }
-    for (const m of this.shots.values()) this.scene.remove(m);
+    for (const v of this.towers.values()) { this.scene.remove(v.obj); disposeTree(v.obj); }
+    for (const v of this.enemies.values()) this.removeEnemy(v.obj, v.mats);
+    for (const d of this.dying) this.removeEnemy(d.obj, d.mats);
+    for (const s of this.shots.values()) this.scene.remove(s.mesh);
     for (const m of this.rings.values()) { this.scene.remove(m); (m.material as THREE.Material).dispose(); }
     this.towers.clear(); this.enemies.clear(); this.shots.clear(); this.rings.clear();
+    this.dying = []; this.motes = [];
     this.world.children.slice().forEach((c) => { this.world.remove(c); disposeTree(c); });
-    this.mills = [];
+    this.mills = []; this.flickers = [];
     this.setGhost(null);
-    this.game = g;
     if (!g) return;
 
     const board = makeBoard(g.map);
-    board.traverse((o) => { if (o.name === 'blades') this.mills.push(o); });
+    addOutlines(board);
+    board.traverse((o) => {
+      if (o.name === 'blades') this.mills.push(o);
+      if (o.name === 'core' && o.parent?.name === 'lantern') this.flickers.push(o);
+    });
     this.world.add(board);
 
     const heart = heartOf(g.path);
     this.heart = makeHeart();
+    addOutlines(this.heart);
     this.heart.position.set(wx(heart.x), 0, wz(heart.y));
+    this.heartFlame = (this.heart.getObjectByName('orb') as THREE.Mesh).material as THREE.MeshBasicMaterial;
     this.world.add(this.heart);
-    this.heartLight.position.set(wx(heart.x), 1.2, wz(heart.y));
+    this.heartLight.position.set(wx(heart.x), 1.1, wz(heart.y));
 
     const [px, py] = g.map.pts[0], [nx, ny] = g.map.pts[1];
     const start = tileToWorld(px, py);
     this.portal = makePortal();
+    addOutlines(this.portal);
     this.portal.position.set(start.x, 0, start.z);
     this.portal.rotation.y = -Math.atan2(ny - py, nx - px);
     this.world.add(this.portal);
   }
 
-  /** Converts a pointer position to a board tile, or null when it misses the board plane. */
-  pickTile(clientX: number, clientY: number) {
+  /** Converts a pointer position to a board point in simulation pixels, or null when it misses the ground. */
+  pickPoint(clientX: number, clientY: number) {
     const r = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
     const hit = this.raycaster.ray.intersectPlane(this.groundPlane, this.tmp);
     if (!hit) return null;
-    return { tx: Math.floor(hit.x + COLS / 2), ty: Math.floor(hit.z + ROWS / 2) };
+    return { x: (hit.x + COLS / 2) * T, y: (hit.z + ROWS / 2) * T };
   }
 
   render(g: Game) {
-    const time = performance.now() / 1000;
-    this.syncTowers(g, time);
-    this.syncEnemies(g);
+    const now = performance.now() / 1000;
+    this.syncTowers(g, now);
+    this.syncEnemies(g, now);
+    this.animateDying(now);
     this.syncShots(g);
     this.syncFx(g);
     this.updateCursor(g);
-    this.animateWorld(g, time);
+    this.animateWorld(g, now);
+    this.drawPoints(g);
 
     this.controls.update();
     // Shake the world rather than the camera so it never fights the camera controls.
@@ -264,62 +321,93 @@ export class GameView {
     this.drawOverlay(g);
   }
 
-  private syncTowers(g: Game, time: number) {
+  // ---------- towers ----------
+
+  private syncTowers(g: Game, now: number) {
     const seen = new Set<Tower>();
     for (const t of g.towers) {
       seen.add(t);
       const key = `${t.level}:${t.branch}`;
       let v = this.towers.get(t);
       if (!v || v.key !== key) {
+        const upgraded = !!v;
         const yaw = v?.yaw ?? -t.angle;
-        if (v) { this.scene.remove(v.obj, v.pool); disposeTree(v.obj); }
+        if (v) { this.scene.remove(v.obj); disposeTree(v.obj); }
         const obj = makeTower(t.type, t.level, t.branch);
+        addOutlines(obj);
         obj.position.set(wx(t.x), 0, wz(t.y));
-        const pool = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({
-          map: this.poolTexture, color: TOWERS[t.type].color, transparent: true, opacity: 0.32,
-          blending: THREE.AdditiveBlending, depthWrite: false,
-        }));
-        pool.rotation.x = -Math.PI / 2;
-        pool.position.set(wx(t.x), 0.015, wz(t.y));
-        pool.scale.setScalar(2.4);
-        this.scene.add(obj, pool);
-        v = { obj, key, pool, yaw };
+        this.scene.add(obj);
+        v = {
+          obj, key, yaw, lastCd: t.cd, fireAt: -9, builtAt: upgraded ? now - 0.12 : now, phase: (t.x * 13 + t.y * 7) % 6.28,
+          aim: obj.getObjectByName('aim'), recoil: byName(obj, 'recoil'), swings: byName(obj, 'swing'), cores: byName(obj, 'core'),
+          flames: obj.getObjectByName('flames'), embers: obj.getObjectByName('embers'), float: obj.getObjectByName('float'),
+          orbit: obj.getObjectByName('orbit'), mist: obj.getObjectByName('mist'), spin: obj.getObjectByName('spin'),
+          arcs: byName(obj, 'arc'), flag: obj.getObjectByName('flag'), badge: obj.getObjectByName('badge'),
+        };
         this.towers.set(t, v);
+        this.puff(wx(t.x), 0.1, wz(t.y), '#efe2c4', upgraded ? 10 : 16, 1.2);
       }
-      const head = v.obj.getObjectByName('head');
-      if (head) {
-        if (t.type === 'frost') head.rotation.y = time * 0.5;
-        else {
-          // Ease toward the aim angle so turning reads smoothly.
-          const target = -t.angle;
-          let diff = target - v.yaw;
-          diff = Math.atan2(Math.sin(diff), Math.cos(diff));
-          v.yaw += diff * 0.25;
-          head.rotation.y = v.yaw;
-        }
-      }
-      const flame = v.obj.getObjectByName('flame');
-      if (flame) flame.scale.set(1 + 0.08 * Math.sin(time * 13 + t.tx), 1 + 0.18 * Math.sin(time * 9 + t.ty), 1);
-      const spin = v.obj.getObjectByName('spin');
-      if (spin) { spin.rotation.y = time * 1.4; spin.position.y = 1.25 + Math.sin(time * 2 + t.tx) * 0.05; }
-      const mist = v.obj.getObjectByName('mist');
-      if (mist) mist.rotation.z = time * 0.8;
-      const badge = v.obj.getObjectByName('badge');
-      if (badge) {
-        badge.visible = needsBranch(t);
-        badge.position.y = 1.5 + Math.sin(time * 4) * 0.07;
-        badge.rotation.y = time * 2;
-      }
-      const pop = 1 + 0.18 * t.flash;
-      v.obj.scale.setScalar(pop);
-      (v.pool.material as THREE.MeshBasicMaterial).opacity = 0.28 + 0.04 * Math.sin(time * 3 + t.tx) + 0.3 * t.flash;
+      this.animateTower(t, v, now);
     }
     for (const [t, v] of this.towers) {
-      if (!seen.has(t)) { this.scene.remove(v.obj, v.pool); disposeTree(v.obj); this.towers.delete(t); }
+      if (!seen.has(t)) {
+        this.puff(v.obj.position.x, 0.2, v.obj.position.z, '#cfc3ad', 18, 1.5);
+        this.scene.remove(v.obj); disposeTree(v.obj); this.towers.delete(t);
+      }
     }
   }
 
-  private syncEnemies(g: Game) {
+  private animateTower(t: Tower, v: TowerView, now: number) {
+    if (t.cd > v.lastCd + 1e-4) v.fireAt = now;
+    v.lastCd = t.cd;
+    const fire = kick(now, v.fireAt, 0.3);
+    const ph = v.phase;
+
+    // Build and upgrade pop.
+    const grow = clamp01((now - v.builtAt) / 0.45);
+    const s = TOWER_SCALE * easeOutBack(grow) * (1 + 0.15 * t.flash);
+    v.obj.scale.set(s, s * (1 + 0.08 * fire * (t.type === 'pulse' ? -1 : 0)), s);
+
+    if (v.aim) {
+      const diff = Math.atan2(Math.sin(-t.angle - v.yaw), Math.cos(-t.angle - v.yaw));
+      v.yaw += diff * 0.2;
+      v.aim.rotation.y = v.yaw;
+    }
+    for (const sw of v.swings) sw.rotation.z = Math.sin(now * 1.8 + ph) * 0.07 + fire * 0.45;
+    for (const r of v.recoil) r.position.x = -0.09 * fire;
+    for (const c of v.cores) c.scale.setScalar(1 + 0.9 * fire + 0.05 * Math.sin(now * 6 + ph));
+    if (v.float) {
+      v.float.position.y = v.float.userData.y0 ??= v.float.position.y;
+      v.float.position.y = v.float.userData.y0 + Math.sin(now * 1.6 + ph) * 0.05 + fire * 0.06;
+      v.float.rotation.y = now * 0.6;
+    }
+    if (v.orbit) v.orbit.rotation.y = now * 1.1 + fire * 1.5;
+    if (v.mist) v.mist.rotation.y = now * 0.4;
+    if (v.flames) {
+      v.flames.children.forEach((f, i) => {
+        f.scale.set(1 + 0.07 * Math.sin(now * 9 + i) + 0.3 * fire, 1 + 0.16 * Math.sin(now * 11 + i * 1.7 + ph) + 0.9 * fire, 1 + 0.07 * Math.cos(now * 8 + i) + 0.3 * fire);
+      });
+    }
+    if (v.embers) {
+      v.embers.children.forEach((e, i) => {
+        const p = (now * 0.7 + i / v.embers!.children.length + ph) % 1;
+        e.position.set(Math.sin(i * 2.4 + now * 1.3) * 0.12 * p, p * 0.75, Math.cos(i * 1.7 + now) * 0.12 * p);
+        e.scale.setScalar(1 - p);
+      });
+    }
+    for (const a of v.arcs) a.scale.setScalar(0.8 + Math.random() * 0.5 + fire);
+    if (v.spin) { v.spin.rotation.y = now * 1.5; v.spin.position.y = 1.2 + Math.sin(now * 2 + ph) * 0.05; }
+    if (v.flag) v.flag.rotation.y = Math.sin(now * 3 + ph) * 0.35;
+    if (v.badge) {
+      v.badge.visible = needsBranch(t);
+      v.badge.position.y = 1.55 + Math.sin(now * 4) * 0.07;
+      v.badge.rotation.y = now * 2;
+    }
+  }
+
+  // ---------- enemies ----------
+
+  private syncEnemies(g: Game, now: number) {
     const seen = new Set<Enemy>();
     for (const e of g.enemies) {
       seen.add(e);
@@ -327,113 +415,228 @@ export class GameView {
       let v = this.enemies.get(e);
       if (!v) {
         const obj = makeEnemy(e.type);
-        obj.scale.setScalar(ENEMY_SCALE);
+        const mats: THREE.MeshToonMaterial[] = [];
+        obj.traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (m.isMesh && m.material instanceof THREE.MeshToonMaterial && !m.material.transparent) {
+            m.material = m.material.clone();
+            mats.push(m.material as THREE.MeshToonMaterial);
+          }
+        });
+        addOutlines(obj);
         this.scene.add(obj);
-        v = { obj, lx: x, lz: z, yaw: 0 };
+        const skin = obj.getObjectByName('skin') as THREE.Mesh | undefined;
+        const parts: EnemyView['parts'] = {};
+        for (const n of ['footL', 'footR', 'wingL', 'wingR', 'armL', 'armR', 'cloak', 'shield', 'slow', 'burn', 'stun']) parts[n] = obj.getObjectByName(n);
+        v = {
+          obj, body: obj.getObjectByName('body')!, lx: x, lz: z, yaw: 0, lastHit: e.lastHit, hitAt: -9, bornAt: now, mats,
+          color: skin ? (skin.material as THREE.MeshToonMaterial).color.clone() : new THREE.Color(e.def.color), parts,
+        };
         this.enemies.set(e, v);
       }
-      const r = e.def.r, t = g.t * 6 + e.seed;
-      const dx = x - v.lx, dz = z - v.lz;
-      if (dx * dx + dz * dz > 1e-6) {
-        const target = Math.atan2(-dz, dx);
-        const diff = Math.atan2(Math.sin(target - v.yaw), Math.cos(target - v.yaw));
-        v.yaw += diff * 0.3;
-      }
-      v.lx = x; v.lz = z;
-      const hop = e.type === 'flitter' ? 0.35 + Math.sin(t * 1.3) * 0.06 : Math.abs(Math.sin(t * 0.9)) * 0.06;
-      v.obj.position.set(x, (r + hop) * ENEMY_SCALE, z);
-      const body = v.obj.getObjectByName('body')!;
-      body.rotation.y = v.yaw;
-      const sq = Math.sin(t) * 0.07;
-      body.scale.set(1 + sq, 1 - sq, 1 + sq);
-      if (e.type === 'flitter') {
-        const flap = Math.sin(g.t * 22 + e.seed) * 0.7;
-        body.getObjectByName('wingL')!.rotation.x = -flap;
-        body.getObjectByName('wingR')!.rotation.x = flap;
-      }
-      const shell = body.getObjectByName('shell');
-      if (shell) shell.scale.setScalar(1 + Math.sin(t * 1.5) * 0.06);
-      const slow = v.obj.getObjectByName('slow')!;
-      slow.visible = e.slowUntil > g.t;
-      slow.position.y = -r + 0.04;
-      v.obj.getObjectByName('burn')!.visible = e.burnUntil > g.t;
-      const stun = v.obj.getObjectByName('stun')!;
-      stun.visible = e.stun > g.t;
-      stun.rotation.y = g.t * 6;
+      this.animateEnemy(g, e, v, x, z, now);
     }
     for (const [e, v] of this.enemies) {
-      if (!seen.has(e)) { this.scene.remove(v.obj); disposeTree(v.obj); this.enemies.delete(e); }
+      if (seen.has(e)) continue;
+      this.enemies.delete(e);
+      const kill = e.hp <= 0;
+      this.dying.push({ obj: v.obj, at: now, kill, scale: v.obj.scale.x, mats: v.mats });
+      if (kill) {
+        this.puff(v.obj.position.x, v.obj.position.y, v.obj.position.z, '#' + v.color.getHexString(), e.type === 'giant' ? 40 : 14, 2.2, 3);
+        this.motes.push({ x: v.obj.position.x, y: v.obj.position.y + 0.2, z: v.obj.position.z, vx: 0, vy: 0.9, vz: 0, life: 0.9, max: 0.9, color: new THREE.Color(C.eye).multiplyScalar(1.6), gravity: 0 });
+      }
     }
   }
+
+  private animateEnemy(g: Game, e: Enemy, v: EnemyView, x: number, z: number, now: number) {
+    const r = e.def.r, p = v.parts;
+    const dx = x - v.lx, dz = z - v.lz;
+    const moving = dx * dx + dz * dz > 1e-7;
+    if (moving) {
+      const target = Math.atan2(-dz, dx);
+      v.yaw += Math.atan2(Math.sin(target - v.yaw), Math.cos(target - v.yaw)) * 0.25;
+    }
+    v.lx = x; v.lz = z;
+    const pace = { crawler: 2.4, flitter: 1, lump: 1.3, shimmer: 1, giant: 0.9 }[e.type];
+    const t = g.t * pace * 4 + e.seed;
+    const frozen = e.stun > g.t;
+    const step = frozen ? 0 : 1;
+
+    let lift = 0;
+    if (e.type === 'crawler') {
+      lift = Math.abs(Math.sin(t)) * 0.07 * step;
+      v.body.rotation.x = Math.sin(t) * 0.14 * step;
+      if (p.footL) p.footL.position.x = r * 0.1 + Math.sin(t) * r * 0.3 * step;
+      if (p.footR) p.footR.position.x = r * 0.1 - Math.sin(t) * r * 0.3 * step;
+    } else if (e.type === 'flitter') {
+      lift = 0.32 + Math.sin(t * 0.8) * 0.06;
+      const flap = Math.sin(g.t * 20 + e.seed) * 0.85 * step;
+      if (p.wingL) p.wingL.rotation.x = -flap;
+      if (p.wingR) p.wingR.rotation.x = flap;
+      v.body.rotation.z = Math.sin(t * 0.8) * 0.12;
+    } else if (e.type === 'lump' || e.type === 'giant') {
+      lift = Math.abs(Math.sin(t)) * (e.type === 'giant' ? 0.05 : 0.035) * step;
+      v.body.rotation.x = Math.sin(t) * 0.06 * step;
+      if (p.armL) p.armL.rotation.z = Math.sin(t) * 0.55 * step;
+      if (p.armR) p.armR.rotation.z = -Math.sin(t) * 0.55 * step;
+    } else if (e.type === 'shimmer') {
+      lift = 0.12 + Math.sin(t * 0.7) * 0.06;
+      if (p.cloak) p.cloak.rotation.z = Math.sin(t * 1.3) * 0.08;
+      if (p.shield) { p.shield.rotation.y = g.t * 0.8; p.shield.scale.setScalar(1 + Math.sin(g.t * 3 + e.seed) * 0.04); }
+    }
+    const squash = Math.sin(t * 2) * 0.05 * step;
+    v.body.scale.set(1 + squash, 1 - squash, 1 + squash);
+    v.body.rotation.y = v.yaw;
+
+    const born = easeOutBack(clamp01((now - v.bornAt) / 0.35));
+    const s = ENEMY_SCALE * born;
+    v.obj.scale.setScalar(s);
+    v.obj.position.set(x, (r + lift) * s, z);
+
+    if (e.lastHit !== v.lastHit) { v.lastHit = e.lastHit; v.hitAt = now; }
+    const flash = kick(now, v.hitAt, 0.14);
+    for (const m of v.mats) m.emissive.setScalar(flash * 0.85);
+
+    if (p.slow) p.slow.visible = e.slowUntil > g.t;
+    if (p.burn) { p.burn.visible = e.burnUntil > g.t; p.burn.scale.y = 1 + Math.sin(now * 20) * 0.15; }
+    if (p.stun) { p.stun.visible = frozen; p.stun.rotation.y = now * 6; }
+  }
+
+  private animateDying(now: number) {
+    this.dying = this.dying.filter((d) => {
+      const dur = d.kill ? 0.28 : 0.3;
+      const p = clamp01((now - d.at) / dur);
+      if (d.kill) {
+        // Squash, swell, pop.
+        const s = d.scale * (p < 0.4 ? 1 + p * 0.8 : (1 - p) * 2.2);
+        d.obj.scale.set(s * (1 + p * 0.4), s * (1 - p * 0.5), s * (1 + p * 0.4));
+        for (const m of d.mats) m.emissive.setScalar(0.6 * (1 - p));
+      } else {
+        // Slips into the heart.
+        d.obj.scale.setScalar(d.scale * (1 - p));
+        d.obj.position.y -= 0.01;
+      }
+      if (p >= 1) { this.removeEnemy(d.obj, d.mats); return false; }
+      return true;
+    });
+  }
+
+  private removeEnemy(obj: THREE.Group, mats: THREE.Material[]) {
+    this.scene.remove(obj);
+    disposeTree(obj);
+    for (const m of mats) m.dispose();
+  }
+
+  // ---------- shots and effects ----------
 
   private syncShots(g: Game) {
     const seen = new Set<Shot>();
     for (const s of g.shots) {
       seen.add(s);
-      let m = this.shots.get(s);
-      if (!m) {
-        m = new THREE.Mesh(this.shotGeo, glow(s.color, 3.4));
-        m.scale.setScalar(s.kind === 'shell' ? 0.1 : 0.055);
-        this.scene.add(m);
-        this.shots.set(s, m);
+      let v = this.shots.get(s);
+      const type = s.tw.type;
+      if (!v) {
+        const mesh = type === 'frost'
+          ? new THREE.Mesh(this.shardGeo, gem('#d6f6ff', 1))
+          : new THREE.Mesh(type === 'star' ? this.shardGeo : this.boltGeo, glow(s.color, 2));
+        mesh.scale.setScalar(type === 'star' ? 0.11 : type === 'frost' ? 0.06 : 0.045);
+        this.scene.add(mesh);
+        v = { mesh, lx: wx(s.x), lz: wz(s.y) };
+        this.shots.set(s, v);
       }
-      // Shells arc; other shots fly level at lantern height.
+      // Shells arc; bolts and shards fly level at lantern height.
       let y = 0.85;
       if (s.kind === 'shell') {
         const total = Math.hypot(s.tx - s.tw.x, s.ty - s.tw.y) || 1;
-        const left = Math.hypot(s.tx - s.x, s.ty - s.y);
-        const f = 1 - Math.min(1, left / total);
-        y = 0.9 + Math.sin(f * Math.PI) * 1.4 - f * 0.6;
+        const f = 1 - Math.min(1, Math.hypot(s.tx - s.x, s.ty - s.y) / total);
+        y = 1.1 + Math.sin(f * Math.PI) * 1.5 - f * 0.9;
       }
-      m.position.set(wx(s.x), y, wz(s.y));
+      const x = wx(s.x), z = wz(s.y);
+      v.mesh.position.set(x, y, z);
+      const heading = Math.atan2(-(z - v.lz), x - v.lx);
+      if (type === 'spark') { v.mesh.rotation.set(0, heading, 0); v.mesh.scale.set(0.11, 0.04, 0.04); }
+      else v.mesh.rotation.set(performance.now() / 120, heading, 0);
+      if (type === 'star' || type === 'spark') {
+        const c = new THREE.Color(s.color).multiplyScalar(1.3);
+        this.motes.push({ x, y, z, vx: 0, vy: 0.05, vz: 0, life: type === 'star' ? 0.45 : 0.18, max: type === 'star' ? 0.45 : 0.18, color: c, gravity: 0 });
+      }
+      v.lx = x; v.lz = z;
     }
-    for (const [s, m] of this.shots) if (!seen.has(s)) { this.scene.remove(m); this.shots.delete(s); }
+    for (const [s, v] of this.shots) if (!seen.has(s)) { this.scene.remove(v.mesh); this.shots.delete(s); }
+  }
+
+  /** A burst of small motes, e.g. dust when a tower lands or ink when an enemy pops. */
+  private puff(x: number, y: number, z: number, color: string, n: number, speed: number, gravity = 1.5) {
+    const c = new THREE.Color(color);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2, v = speed * (0.4 + Math.random() * 0.6);
+      this.motes.push({ x, y, z, vx: Math.cos(a) * v, vy: 0.6 + Math.random() * speed * 0.8, vz: Math.sin(a) * v, life: 0.5 + Math.random() * 0.3, max: 0.8, color: c, gravity });
+    }
   }
 
   private syncFx(g: Game) {
-    let pc = 0, lc = 0;
+    let lc = 0;
     const lpos = this.lines.geometry.getAttribute('position') as THREE.BufferAttribute;
     const seen = new Set<Fx>();
-    const col = new THREE.Color();
     for (const f of g.fx) {
       const a = Math.max(0, f.life / f.max);
-      if (f.k === 'p' && pc < MAX_PARTICLES) {
-        this.pPos.set([wx(f.x), 0.3 + (1 - a) * 0.7, wz(f.y)], pc * 3);
-        col.set(f.color).multiplyScalar(a * 0.9);
-        this.pCol.set([col.r, col.g, col.b], pc * 3);
-        pc++;
-      } else if (f.k === 'ring') {
+      if (f.k === 'ring') {
         seen.add(f);
         let m = this.rings.get(f);
         if (!m) {
-          m = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({
-            color: f.color, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
-          }));
+          m = new THREE.Mesh(this.ringGeo, new THREE.MeshBasicMaterial({ color: f.color, transparent: true, depthWrite: false, side: THREE.DoubleSide }));
           m.rotation.x = -Math.PI / 2;
           this.scene.add(m);
           this.rings.set(f, m);
         }
-        const r = (f.r0 + (f.r1 - f.r0) * (1 - a)) / T;
-        m.scale.setScalar(Math.max(0.01, r));
+        m.scale.setScalar(Math.max(0.01, (f.r0 + (f.r1 - f.r0) * (1 - a * a)) / T));
         m.position.set(wx(f.x), 0.06, wz(f.y));
-        // Kept faint: bright additive rings trip the bloom pass and flash the whole board.
-        (m.material as THREE.MeshBasicMaterial).opacity = a * 0.35;
+        (m.material as THREE.MeshBasicMaterial).opacity = a * 0.55;
       } else if (f.k === 'line' && lc < 400) {
-        lpos.setXYZ(lc * 2, wx(f.x), 0.4, wz(f.y));
-        lpos.setXYZ(lc * 2 + 1, wx(f.x2), 0.4, wz(f.y2));
+        lpos.setXYZ(lc * 2, wx(f.x), 0.5, wz(f.y));
+        lpos.setXYZ(lc * 2 + 1, wx(f.x2), 0.5, wz(f.y2));
         lc++;
       }
     }
     for (const [f, m] of this.rings) {
       if (!seen.has(f)) { this.scene.remove(m); (m.material as THREE.Material).dispose(); this.rings.delete(f); }
     }
-    const pg = this.particles.geometry;
-    pg.setDrawRange(0, pc);
-    (pg.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
-    (pg.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
     this.lines.geometry.setDrawRange(0, lc * 2);
     lpos.needsUpdate = true;
   }
+
+  /** Simulation sparks plus the view's own motes, drawn as one point cloud. */
+  private drawPoints(g: Game) {
+    const dt = 1 / 60;
+    let n = 0;
+    const col = new THREE.Color();
+    for (const f of g.fx) {
+      if (f.k !== 'p' || n >= MAX_POINTS || f.life / f.max < 0.15) continue;
+      this.pPos.set([wx(f.x), 0.35 + (1 - f.life / f.max) * 0.6, wz(f.y)], n * 3);
+      col.set(f.color);
+      this.pCol.set([col.r, col.g, col.b], n * 3);
+      n++;
+    }
+    this.motes = this.motes.filter((m) => {
+      m.life -= dt;
+      if (m.life <= 0) return false;
+      m.vy -= m.gravity * dt;
+      m.x += m.vx * dt; m.y = Math.max(0.02, m.y + m.vy * dt); m.z += m.vz * dt;
+      m.vx *= 0.94; m.vz *= 0.94;
+      if (n < MAX_POINTS && m.life / m.max > 0.12) {
+        this.pPos.set([m.x, m.y, m.z], n * 3);
+        this.pCol.set([m.color.r, m.color.g, m.color.b], n * 3);
+        n++;
+      }
+      return true;
+    });
+    const geo = this.points.geometry;
+    geo.setDrawRange(0, n);
+    (geo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true;
+    (geo.getAttribute('color') as THREE.BufferAttribute).needsUpdate = true;
+  }
+
+  // ---------- cursor ----------
 
   private setGhost(type: TowerType | null) {
     if (this.ghost && this.ghost.type === type) return;
@@ -445,7 +648,7 @@ export class GameView {
       if (m.isMesh) {
         const mat = (m.material as THREE.Material).clone();
         mat.transparent = true;
-        mat.opacity = 0.5;
+        mat.opacity = 0.55;
         mat.depthWrite = false;
         m.material = mat;
         m.castShadow = false;
@@ -456,66 +659,62 @@ export class GameView {
   }
 
   private updateCursor(g: Game) {
-    this.buildGrid.visible = !!g.build;
-    const hover = g.build && g.hover && g.hover.tx >= 0 && g.hover.ty >= 0 && g.hover.tx < COLS && g.hover.ty < ROWS ? g.hover : null;
+    const hover = g.build ? g.hover : null;
     this.setGhost(hover ? g.build : null);
     if (hover && g.build) {
-      const ok = canBuild(g, hover.tx, hover.ty) && g.gold >= TOWERS[g.build].cost;
-      const { x, z } = tileToWorld(hover.tx, hover.ty);
-      this.hoverTile.visible = true;
-      this.hoverTile.position.set(x, 0.012, z);
-      (this.hoverTile.material as THREE.MeshBasicMaterial).color.set(ok ? '#7fc28a' : '#ff5f6d');
+      const ok = canBuild(g, hover.x, hover.y) && g.gold >= TOWERS[g.build].cost;
+      const x = wx(hover.x), z = wz(hover.y);
+      this.footprint.visible = true;
+      this.footprint.position.set(x, 0.03, z);
+      (this.footprint.material as THREE.MeshBasicMaterial).color.set(ok ? '#ffffff' : '#ff4f5e');
       this.buildRing.visible = true;
-      this.buildRing.position.set(x, 0.02, z);
+      this.buildRing.position.set(x, 0.03, z);
       this.buildRing.scale.setScalar(TOWERS[g.build].range);
-      (this.buildRing.material as THREE.MeshBasicMaterial).color.set(ok ? '#5f9a6a' : '#b8444f');
+      (this.buildRing.material as THREE.MeshBasicMaterial).color.set(ok ? '#ffffff' : '#ff4f5e');
       this.ghost!.obj.position.set(x, 0, z);
       this.ghost!.obj.visible = ok;
     } else {
-      this.hoverTile.visible = false;
+      this.footprint.visible = false;
       this.buildRing.visible = false;
     }
     if (g.selected) {
       this.selectRing.visible = true;
-      this.selectRing.position.set(wx(g.selected.x), 0.02, wz(g.selected.y));
+      this.selectRing.position.set(wx(g.selected.x), 0.03, wz(g.selected.y));
       this.selectRing.scale.setScalar(stats(g.selected).range);
-      (this.selectRing.material as THREE.MeshBasicMaterial).color.set('#9d97a8');
+      (this.selectRing.material as THREE.MeshBasicMaterial).color.set('#fff6dc');
     } else this.selectRing.visible = false;
   }
 
-  private animateWorld(g: Game, time: number) {
-    if (this.heart) {
-      const beat = 1 + 0.08 * Math.sin(time * 2.4);
-      const orb = this.heart.getObjectByName('orb') as THREE.Mesh;
-      orb.scale.setScalar(beat);
-      orb.rotation.y = time * 0.4;
-      const health = Math.max(0, g.lives / g.maxLives);
-      const mat = orb.material as THREE.MeshStandardMaterial;
-      mat.emissive.setHSL(0.02 + 0.07 * health, 1, 0.55);
-      mat.color.copy(mat.emissive);
-      mat.emissiveIntensity = 1.5 + 2 * health;
-      this.heartLight.intensity = (2 + 4 * health) * beat;
+  // ---------- world ----------
+
+  private animateWorld(g: Game, now: number) {
+    if (this.heart && this.heartFlame) {
+      const health = clamp01(g.lives / g.maxLives);
+      const beat = 1 + 0.06 * Math.sin(now * 2.4);
+      const flame = this.heart.getObjectByName('flame')!;
+      flame.scale.set(beat * (0.6 + 0.4 * health), (1 + 0.12 * Math.sin(now * 9)) * (0.5 + 0.5 * health), beat * (0.6 + 0.4 * health));
+      this.heartFlame.color.set(C.flame).lerp(new THREE.Color('#c2412a'), 1 - health).multiplyScalar(1.2 + 0.8 * health);
+      this.heartLight.intensity = (1.5 + 3 * health) * beat;
     }
     const swirl = this.portal?.getObjectByName('swirl');
-    if (swirl) swirl.rotation.z = time * 1.5;
-    for (const m of this.mills) m.rotation.z = time * 0.6;
+    if (swirl) { swirl.rotation.z = now * 1.6; swirl.scale.setScalar(1 + Math.sin(now * 3) * 0.05); }
+    for (const m of this.mills) m.rotation.z = now * 0.6;
+    for (const f of this.flickers) f.scale.setScalar(1 + Math.sin(now * 13 + f.id) * 0.06);
 
-    const fp = this.fireflies.geometry.getAttribute('position') as THREE.BufferAttribute;
-    this.fireflySeeds.forEach((f, i) => {
-      fp.setXYZ(i,
-        f.x + Math.sin(time * f.s + f.p) * 0.6,
-        0.5 + Math.sin(time * f.s * 1.7 + f.p * 2) * 0.3,
-        f.z + Math.cos(time * f.s * 0.8 + f.p) * 0.6);
+    const fp = this.pollen.geometry.getAttribute('position') as THREE.BufferAttribute;
+    this.pollenSeeds.forEach((f, i) => {
+      fp.setXYZ(i, f.x + Math.sin(now * f.s + f.p) * 0.8, 0.6 + Math.sin(now * f.s * 1.7 + f.p * 2) * 0.35, f.z + Math.cos(now * f.s * 0.8 + f.p) * 0.8);
     });
     fp.needsUpdate = true;
-    (this.fireflies.material as THREE.PointsMaterial).opacity = 0.6 + 0.3 * Math.sin(time * 3);
   }
+
+  // ---------- 2D overlay ----------
 
   /** Projects a world point to overlay pixels. */
   private toScreen(x: number, y: number, z: number) {
-    const p = this.tmp.set(x, y, z).project(this.camera);
-    const c = this.overlay.canvas, dpr = c.width / (this.canvas.clientWidth || 1);
-    return { sx: ((p.x + 1) / 2) * (c.width / dpr), sy: ((1 - p.y) / 2) * (c.height / dpr) };
+    const p = this.tmp.set(x + this.scene.position.x, y, z + this.scene.position.z).project(this.camera);
+    const w = this.canvas.clientWidth || 960, h = (w * 10) / 16;
+    return { sx: ((p.x + 1) / 2) * w, sy: ((1 - p.y) / 2) * h };
   }
 
   private drawOverlay(g: Game) {
@@ -530,24 +729,29 @@ export class GameView {
       if (e.hp >= e.maxHp) continue;
       const v = this.enemies.get(e);
       if (!v) continue;
-      const r = e.def.r;
-      const { sx, sy } = this.toScreen(v.obj.position.x, v.obj.position.y + r + 0.25, v.obj.position.z);
-      const w = Math.max(20, r * 90) * scale;
-      ctx.fillStyle = 'rgba(0,0,0,0.65)';
-      ctx.fillRect(sx - w / 2, sy, w, 4);
-      ctx.fillStyle = e.hp / e.maxHp > 0.4 ? '#7fc28a' : '#ff5f6d';
-      ctx.fillRect(sx - w / 2, sy, w * Math.max(0, e.hp / e.maxHp), 4);
+      const r = e.def.r * ENEMY_SCALE;
+      const { sx, sy } = this.toScreen(v.obj.position.x, v.obj.position.y + r + 0.3, v.obj.position.z);
+      const w = Math.max(22, e.def.r * 110) * scale, h = 5;
+      const f = Math.max(0, e.hp / e.maxHp);
+      ctx.fillStyle = 'rgba(30,20,35,0.85)';
+      ctx.beginPath(); ctx.roundRect(sx - w / 2 - 1.5, sy - 1.5, w + 3, h + 3, 3); ctx.fill();
+      ctx.fillStyle = f > 0.5 ? '#8ee06a' : f > 0.25 ? '#ffc94a' : '#ff5a5a';
+      ctx.beginPath(); ctx.roundRect(sx - w / 2, sy, w * f, h, 2); ctx.fill();
     }
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
     for (const f of g.fx) {
       if (f.k !== 'txt') continue;
-      ctx.globalAlpha = Math.min(1, (f.life / f.max) * 2);
-      ctx.font = `700 ${Math.round(f.size * Math.max(0.75, scale))}px ${FONT}`;
-      const { sx, sy } = this.toScreen(wx(f.x), 1.3, wz(f.y));
-      ctx.fillStyle = 'rgba(0,0,0,0.7)';
-      ctx.fillText(f.text, sx + 1, sy + 1);
+      const life = f.life / f.max;
+      ctx.globalAlpha = Math.min(1, life * 2.5);
+      const pop = 1 + 0.25 * Math.max(0, (life - 0.85) / 0.15);
+      ctx.font = `800 ${Math.round(f.size * pop * Math.max(0.8, scale))}px ${FONT}`;
+      const { sx, sy } = this.toScreen(wx(f.x), 1.4, wz(f.y));
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = 'rgba(40,24,40,0.9)';
+      ctx.strokeText(f.text, sx, sy);
       ctx.fillStyle = f.color;
       ctx.fillText(f.text, sx, sy);
     }

@@ -32,6 +32,7 @@ try {
   Object.assign(models, {
     heart: m.makeHeart(), portal: m.makePortal(), windmill: m.makeWindmill(),
     tree: m.makeTree(rnd), rock: m.makeRock(rnd), mushrooms: m.makeMushrooms(rnd),
+    'dead-tree': m.makeDeadTree(rnd), grave: m.makeGrave(rnd), 'lamp-post': m.makeLampPost(),
     'board-mill': m.makeBoard(MAPS.mill),
   });
 

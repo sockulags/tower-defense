@@ -38,3 +38,14 @@ export function posAt(p: Path, d: number): Pt {
 }
 
 export const heartOf = (p: Path) => p.pts[p.pts.length - 1];
+
+/** Shortest distance from a point to the road centreline, in simulation pixels. */
+export function distToPath(p: Path, x: number, y: number) {
+  let best = Infinity;
+  for (const s of p.segs) {
+    const dx = s.b.x - s.a.x, dy = s.b.y - s.a.y, len2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((x - s.a.x) * dx + (y - s.a.y) * dy) / len2));
+    best = Math.min(best, Math.hypot(x - s.a.x - dx * t, y - s.a.y - dy * t));
+  }
+  return best;
+}
