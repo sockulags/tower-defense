@@ -124,7 +124,6 @@ export interface Hooks {
 export interface Game {
   map: MapDef;
   path: Path;
-  bg: HTMLCanvasElement;
   gold: number;
   lives: number;
   maxLives: number;

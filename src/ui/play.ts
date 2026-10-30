@@ -10,7 +10,7 @@ import {
 } from '../game/towers';
 import { GameView, towerPortraits } from '../three/view';
 import { L, fmt } from '../i18n';
-import { initAudio, isMuted, setMuted } from '../audio';
+import { initAudio, isMuted, setMuted, setQuiet } from '../audio';
 import { finishRun } from '../meta';
 import { towerUnlocked } from '../save';
 import { $, clearTextCache, setText } from './dom';
@@ -19,6 +19,8 @@ import { nav } from './nav';
 import type { Game, MapId, Tower, TowerType } from '../types';
 
 let game: Game | null = null;
+/** 'menu' runs a silent demo game behind the menu; 'play' is the player's own run. */
+let mode: 'menu' | 'play' = 'menu';
 let quitArmed = false;
 let toastTimer = 0;
 const cv = $<HTMLCanvasElement>('cv');
@@ -30,16 +32,17 @@ export const currentView = () => view;
 if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__view = view;
 
 export function startRun(mapId: MapId) {
+  mode = 'play';
+  setQuiet(false);
   game = createGame(mapId, {
     towerChanged: (t) => { if (game?.selected === t) renderCard(); },
     ended: (win) => showEnd(win, false),
   });
-  portraits ??= towerPortraits();
+  portraits = towerPortraits();
   quitArmed = false;
   clearTextCache();
   $('menu').hidden = true;
-  $('game').hidden = false;
-  document.body.classList.add('playing');
+  $('hud').hidden = false;
   $('ov').hidden = true;
   $('menuPop').hidden = true;
   view.setGame(game);
@@ -49,10 +52,34 @@ export function startRun(mapId: MapId) {
   toast(L().info.idleHint, 7000);
 }
 
-export function stopRun() {
-  game = null;
-  view.setGame(null);
-  document.body.classList.remove('playing');
+/** Demo towers for the menu backdrop: one of each kind, spread along Mill Hill's road. */
+const DEMO: [TowerType, number, number, number][] = [
+  ['spark', 2.8, 3.4, 3], ['frost', 5.4, 1.0, 2], ['pulse', 6.6, 6.1, 3], ['star', 7.4, 4.2, 4],
+  ['spark', 10.6, 5.6, 2], ['frost', 11.6, 1.0, 3], ['star', 14.2, 4.4, 2],
+];
+
+/** Starts the silent, endless demo that plays behind the menu. */
+export function startAttract() {
+  mode = 'menu';
+  setQuiet(true);
+  const g = createGame('mill', { towerChanged: () => {}, ended: () => startAttract() });
+  g.lives = g.maxLives = 1e6;
+  g.gold = 1e6;
+  g.auto = true;
+  g.autoT = 1;
+  for (const [type, tx, ty, level] of DEMO) {
+    const t = placeTower(g, type, (tx + 0.5) * T, (ty + 0.5) * T, true);
+    if (!t) continue;
+    for (let i = 0; i < 6 && t.level < level; i++) {
+      if (needsBranch(t)) chooseBranch(g, t, t.x > 400 ? 1 : 0); else upgrade(g, t);
+    }
+  }
+  g.fx = [];
+  game = g;
+  $('hud').hidden = true;
+  $('ov').hidden = true;
+  $('card').hidden = true;
+  view.setGame(g);
 }
 
 /** Called once per animation frame from main.ts. */
@@ -61,6 +88,7 @@ export function frame(dt: number) {
   if (!g) return;
   if (!g.paused && !g.over) for (let i = 0; i < g.speed; i++) update(g, dt);
   view.render(g);
+  if (mode === 'menu') return;
   updateHud(g);
   placeAnchors(g);
 }
@@ -286,20 +314,20 @@ function showEnd(win: boolean, gaveUp: boolean) {
   $('ovbox').innerHTML = h;
   $('ov').hidden = false;
   $('oAgain').onclick = () => startRun(m.id);
-  $('oMenu').onclick = () => { stopRun(); nav.menu(); };
+  $('oMenu').onclick = () => nav.menu();
 }
 
 // ---------- input ----------
 
 const pointFromEvent = (ev: PointerEvent) => view.pickPoint(ev.clientX, ev.clientY);
 
-cv.addEventListener('pointermove', (ev) => { if (game) game.hover = pointFromEvent(ev); });
+cv.addEventListener('pointermove', (ev) => { if (game && mode === 'play') game.hover = pointFromEvent(ev); });
 cv.addEventListener('pointerleave', () => { if (game) game.hover = null; });
 cv.addEventListener('contextmenu', (e) => e.preventDefault());
 cv.addEventListener('pointerdown', (ev) => {
   initAudio();
   const g = game;
-  if (!g || g.over) return;
+  if (!g || g.over || mode !== 'play') return;
   if (ev.button === 2) { g.build = null; hideToast(); select(null); return; }
   const p = pointFromEvent(ev);
   g.hover = p;
@@ -312,7 +340,7 @@ cv.addEventListener('pointerdown', (ev) => {
 
 document.addEventListener('keydown', (ev) => {
   const g = game;
-  if (!g || $('game').hidden) return;
+  if (!g || mode !== 'play') return;
   if (ev.key >= '1' && ev.key <= '4') selectBuild(TOWER_ORDER[Number(ev.key) - 1]);
   else if (ev.key === ' ') { ev.preventDefault(); initAudio(); startWave(g); }
   else if (ev.key === 'p' || ev.key === 'P') g.paused = !g.paused;

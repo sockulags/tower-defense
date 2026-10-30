@@ -4,7 +4,6 @@ import { MAPS } from '../data/maps';
 import { L } from '../i18n';
 import { save } from '../save';
 import { sfx } from '../audio';
-import { renderBackground } from './background';
 import { damage, impact, updateTower } from './combat';
 import { floatText, updateFx } from './fx';
 import { buildPath, heartOf, posAt } from './path';
@@ -16,7 +15,7 @@ export function createGame(mapId: MapId, hooks: Hooks): Game {
   const path = buildPath(map);
   const lives = 20 + 3 * save.up.lives;
   return {
-    map, path, bg: renderBackground(map, path),
+    map, path,
     gold: 160 + 30 * save.up.gold, lives, maxLives: lives,
     wave: 0, cleared: 0, towers: [], enemies: [], shots: [], fx: [], queue: [],
     spawnT: 0, active: false, auto: false, autoT: 0, speed: 1, paused: false, over: false,

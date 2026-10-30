@@ -6,78 +6,82 @@
   <title>Duskwatch</title>
   <meta name="claude:viewport-fit-sides" content="cover">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya+Sans:wght@400;500;700&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya+Sans:wght@400;500;700;800&display=swap">
 </head>
 <body>
-  <div class="app">
-    <section id="menu">
-      <header class="brand">
-        <div class="brand-row">
-          <h1 id="mTitle"></h1>
-          <div class="lang" id="mLang"></div>
+  <!-- The board is always on screen: a live demo behind the menu, the player's run during play. -->
+  <section id="game">
+    <canvas id="cv" width="960" height="600"></canvas>
+    <canvas id="cv2d" width="960" height="600"></canvas>
+    <div class="play-hud" id="hud" hidden>
+      <div class="plaque panel">
+        <div class="res"><span class="ico" id="hLivesIcon"></span><b class="num" id="hLives">20</b></div>
+        <div class="res"><span class="ico" id="hGoldIcon"></span><b class="num" id="hGold">0</b></div>
+        <div class="res wave"><small id="hWaveL"></small><b class="num" id="hWave">0</b><small class="map" id="hMapName"></small></div>
+      </div>
+
+      <div class="corner">
+        <button class="orb" id="bSpeed">1×</button>
+        <button class="orb" id="bPause"></button>
+        <button class="orb" id="bMute"></button>
+        <button class="orb" id="bMenu"></button>
+        <div class="pop panel" id="menuPop" hidden>
+          <button class="go" id="mResume"></button>
+          <button class="ghost danger" id="bQuit"></button>
         </div>
-        <p class="tag" id="mTag"></p>
+      </div>
+
+      <div class="call" id="call">
+        <button class="horn" id="bWave"><span class="ico" id="bWaveIcon"></span><span class="txt"><b id="bWaveLabel"></b><small id="bWaveSub"></small></span></button>
+        <button class="chip" id="bAuto"></button>
+      </div>
+
+      <div class="toast panel" id="toast" hidden></div>
+      <div class="banner" id="pausedBanner" hidden></div>
+      <div class="tcard panel" id="card" hidden></div>
+      <div class="tip panel" id="tip" hidden></div>
+      <div class="belt panel" id="belt"></div>
+    </div>
+    <div class="overlay" id="ov" hidden><div class="ovbox panel" id="ovbox"></div></div>
+  </section>
+
+  <section id="menu">
+    <div class="menu-inner">
+      <header class="masthead">
+        <div class="title-block">
+          <h1 id="mTitle"></h1>
+          <p class="ribbon" id="mTag"></p>
+        </div>
+        <div class="watch panel">
+          <div class="watch-top">
+            <div><span class="eyebrow" id="mLevelLabel"></span><b class="lvl num" id="mLevel">1</b></div>
+            <div class="langs" id="mLang"></div>
+          </div>
+          <div class="bar"><i id="mBar"></i></div>
+          <p class="fine" id="mNext"></p>
+          <p class="dustline"><span class="ico" id="mDustIcon"></span><b class="num" id="mDust">0</b><span id="mDustLabel"></span></p>
+        </div>
       </header>
 
-      <div class="meta">
-        <div><div class="label" id="mLevelLabel"></div><div class="lvl num" id="mLevel">1</div></div>
-        <div class="prog"><div class="bar"><i id="mBar"></i></div><div class="muted" id="mNext"></div></div>
-        <div><div class="label" id="mDustLabel"></div><div class="dust num" id="mDust">0</div></div>
-      </div>
-
-      <div class="section">
-        <h2 id="mModesTitle"></h2>
+      <section class="msec">
+        <h2 class="sec-title" id="mModesTitle"></h2>
         <div class="modes" id="modes"></div>
+      </section>
+
+      <div class="msplit">
+        <section class="book panel">
+          <h2 id="mShopTitle"></h2>
+          <p class="fine" id="mShopIntro"></p>
+          <div class="shop" id="shop"></div>
+        </section>
+        <section class="book panel">
+          <h2 id="mCodexTitle"></h2>
+          <p class="fine" id="mCodexIntro"></p>
+          <div class="codex" id="codex"></div>
+        </section>
       </div>
-
-      <div class="section">
-        <h2 id="mShopTitle"></h2>
-        <p class="muted" id="mShopIntro"></p>
-        <div class="shop" id="shop"></div>
-      </div>
-
-      <div class="section">
-        <h2 id="mCodexTitle"></h2>
-        <p class="muted" id="mCodexIntro"></p>
-        <div class="codex" id="codex"></div>
-      </div>
-    </section>
-
-    <section id="game" hidden>
-      <canvas id="cv" width="960" height="600"></canvas>
-      <canvas id="cv2d" width="960" height="600"></canvas>
-      <div class="play-hud">
-        <div class="plaque panel">
-          <div class="res"><span class="ico" id="hLivesIcon"></span><b class="num" id="hLives">20</b></div>
-          <div class="res"><span class="ico" id="hGoldIcon"></span><b class="num" id="hGold">0</b></div>
-          <div class="res wave"><small id="hWaveL"></small><b class="num" id="hWave">0</b><small class="map" id="hMapName"></small></div>
-        </div>
-
-        <div class="corner">
-          <button class="orb" id="bSpeed">1×</button>
-          <button class="orb" id="bPause"></button>
-          <button class="orb" id="bMute"></button>
-          <button class="orb" id="bMenu"></button>
-          <div class="pop panel" id="menuPop" hidden>
-            <button class="go" id="mResume"></button>
-            <button class="ghost danger" id="bQuit"></button>
-          </div>
-        </div>
-
-        <div class="call" id="call">
-          <button class="horn" id="bWave"><span class="ico" id="bWaveIcon"></span><span class="txt"><b id="bWaveLabel"></b><small id="bWaveSub"></small></span></button>
-          <button class="chip" id="bAuto"></button>
-        </div>
-
-        <div class="toast panel" id="toast" hidden></div>
-        <div class="banner" id="pausedBanner" hidden></div>
-        <div class="tcard panel" id="card" hidden></div>
-        <div class="tip panel" id="tip" hidden></div>
-        <div class="belt panel" id="belt"></div>
-      </div>
-      <div class="overlay" id="ov" hidden><div class="ovbox panel" id="ovbox"></div></div>
-    </section>
-  </div>
+    </div>
+  </section>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

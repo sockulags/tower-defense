@@ -8,9 +8,9 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { COLS, ROWS, T } from '../config';
 import { TOWERS } from '../data/towers';
 import { canBuild, needsBranch, stats } from '../game/towers';
-import { heartOf } from '../game/path';
+import { buildPath, heartOf } from '../game/path';
 import { C, gem, glow, makeBoard, makeEnemy, makeHeart, makePortal, makeTower, tileToWorld } from './models';
-import type { Enemy, Fx, Game, Shot, Tower, TowerType } from '../types';
+import type { Enemy, Fx, Game, MapDef, Path, Shot, Tower, TowerType } from '../types';
 
 const FONT = '"Alegreya Sans", sans-serif';
 /** Camera angle from straight down: steep enough to read the board, shallow enough to see the sides of models. */
@@ -100,11 +100,88 @@ const byName = (root: THREE.Object3D, name: string) => {
   return out;
 };
 
+/** The static world for a map: the island with its scenery, the heart at the road's end and the rift at its start. */
+function buildWorld(map: MapDef, path: Path) {
+  const board = mergeStatic(makeBoard(map));
+  addOutlines(board);
+  const end = heartOf(path);
+  const heart = makeHeart();
+  addOutlines(heart);
+  heart.position.set(wx(end.x), 0, wz(end.y));
+  const [px, py] = map.pts[0], [nx, ny] = map.pts[1];
+  const start = tileToWorld(px, py);
+  const portal = makePortal();
+  addOutlines(portal);
+  portal.position.set(start.x, 0, start.z);
+  portal.rotation.y = -Math.atan2(ny - py, nx - px);
+  return { board, heart, portal };
+}
+
+/** Golden-hour lights shared by the board and the offscreen portraits. */
+function addSunlight(scene: THREE.Scene, shadows: boolean) {
+  scene.add(new THREE.HemisphereLight('#d5e6ff', '#8a6b4c', 1.25));
+  const sun = new THREE.DirectionalLight('#ffd7a0', 2.4);
+  sun.position.set(-9, 8, 5);
+  if (shadows) {
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 12, bottom: -12, near: 1, far: 45 });
+    sun.shadow.bias = -0.0006;
+    sun.shadow.normalBias = 0.025;
+  }
+  scene.add(sun);
+  const rim = new THREE.DirectionalLight('#ffc2d6', 0.9);
+  rim.position.set(6, 5, -10);
+  scene.add(rim);
+}
+
+/** Frames the playable board in an orthographic camera at the game's tilt, for a given aspect. */
+function fitOrtho(camera: THREE.OrthographicCamera, aspect: number, pad = BOARD_PAD) {
+  const cos = Math.cos(CAMERA_TILT);
+  const hw = Math.max(COLS / 2 + pad, (ROWS / 2 + pad) * cos * aspect);
+  const hh = hw / aspect;
+  Object.assign(camera, { left: -hw, right: hw, top: hh, bottom: -hh });
+  camera.position.set(0, Math.cos(CAMERA_TILT) * 40, Math.sin(CAMERA_TILT) * 40);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+}
+
+const mapPortraitCache = new Map<string, string>();
+
+/** A still of a whole map as it looks in game, for the menu's map cards. Cached per map. */
+export function mapPortrait(map: MapDef, w = 480, h = 300): string {
+  const cached = mapPortraitCache.get(map.id);
+  if (cached) return cached;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color('#3f7a45');
+  addSunlight(scene, true);
+  const world = buildWorld(map, buildPath(map));
+  scene.add(world.board, world.heart, world.portal);
+  const cam = new THREE.OrthographicCamera(-10, 10, 6, -6, 0.1, 100);
+  fitOrtho(cam, w / h, 0.9);
+  renderer.render(scene, cam);
+  const url = canvas.toDataURL('image/jpeg', 0.86);
+  for (const o of [world.board, world.heart, world.portal]) disposeTree(o);
+  renderer.dispose();
+  renderer.forceContextLoss();
+  mapPortraitCache.set(map.id, url);
+  return url;
+}
+
 /**
  * Renders a small 3D portrait of each tower, in the game's own lighting and outline style,
  * for the build belt and tower cards. Uses a short-lived renderer of its own.
  */
+let portraitCache: Record<TowerType, string> | null = null;
+
 export function towerPortraits(size = 128, level = 2): Record<TowerType, string> {
+  if (portraitCache) return portraitCache;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -129,6 +206,7 @@ export function towerPortraits(size = 128, level = 2): Record<TowerType, string>
   }
   renderer.dispose();
   renderer.forceContextLoss();
+  portraitCache = out;
   return out;
 }
 
@@ -222,18 +300,7 @@ export class GameView {
     // Golden hour: a low warm sun casting long shadows, a cool sky fill, and a soft rim from behind.
     this.scene.background = skyTexture();
     this.scene.add(this.world);
-    this.scene.add(new THREE.HemisphereLight('#d5e6ff', '#8a6b4c', 1.25));
-    const sun = new THREE.DirectionalLight('#ffd7a0', 2.4);
-    sun.position.set(-9, 8, 5);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 12, bottom: -12, near: 1, far: 45 });
-    sun.shadow.bias = -0.0006;
-    sun.shadow.normalBias = 0.025;
-    this.scene.add(sun);
-    const rim = new THREE.DirectionalLight('#ffc2d6', 0.9);
-    rim.position.set(6, 5, -10);
-    this.scene.add(rim);
+    addSunlight(this.scene, true);
     this.scene.add(this.heartLight);
 
     this.composer = new EffectComposer(this.renderer);
@@ -288,13 +355,7 @@ export class GameView {
    * scenery around it rather than empty sky.
    */
   private fitCamera() {
-    const aspect = this.size.w / this.size.h, cos = Math.cos(CAMERA_TILT);
-    const hw = Math.max(COLS / 2 + BOARD_PAD, (ROWS / 2 + BOARD_PAD) * cos * aspect);
-    const hh = hw / aspect;
-    Object.assign(this.camera, { left: -hw, right: hw, top: hh, bottom: -hh });
-    this.camera.position.set(0, Math.cos(CAMERA_TILT) * 40, Math.sin(CAMERA_TILT) * 40);
-    this.camera.lookAt(0, 0, 0);
-    this.camera.updateProjectionMatrix();
+    fitOrtho(this.camera, this.size.w / this.size.h);
   }
 
   private makeRangeRing() {
@@ -333,29 +394,16 @@ export class GameView {
     this.setGhost(null);
     if (!g) return;
 
-    const board = mergeStatic(makeBoard(g.map));
-    addOutlines(board);
-    board.traverse((o) => {
+    const w = buildWorld(g.map, g.path);
+    w.board.traverse((o) => {
       if (o.name === 'blades') this.mills.push(o);
       if (o.name === 'core' && o.parent?.name === 'lantern') this.flickers.push(o);
     });
-    this.world.add(board);
-
-    const heart = heartOf(g.path);
-    this.heart = makeHeart();
-    addOutlines(this.heart);
-    this.heart.position.set(wx(heart.x), 0, wz(heart.y));
-    this.heartFlame = (this.heart.getObjectByName('orb') as THREE.Mesh).material as THREE.MeshBasicMaterial;
-    this.world.add(this.heart);
-    this.heartLight.position.set(wx(heart.x), 1.1, wz(heart.y));
-
-    const [px, py] = g.map.pts[0], [nx, ny] = g.map.pts[1];
-    const start = tileToWorld(px, py);
-    this.portal = makePortal();
-    addOutlines(this.portal);
-    this.portal.position.set(start.x, 0, start.z);
-    this.portal.rotation.y = -Math.atan2(ny - py, nx - px);
-    this.world.add(this.portal);
+    this.world.add(w.board, w.heart, w.portal);
+    this.heart = w.heart;
+    this.portal = w.portal;
+    this.heartFlame = (w.heart.getObjectByName('orb') as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    this.heartLight.position.set(w.heart.position.x, 1.1, w.heart.position.z);
   }
 
   /** Where a board point (simulation pixels, at a height in world units) appears on screen, in CSS pixels. */

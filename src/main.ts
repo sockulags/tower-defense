@@ -3,9 +3,10 @@ import { initAudio } from './audio';
 import { locale, setLocale } from './i18n';
 import { renderMenu, showMenu } from './ui/menu';
 import { nav } from './ui/nav';
-import { currentGame, currentView, frame, startRun } from './ui/play';
+import { currentGame, currentView, frame, startAttract, startRun } from './ui/play';
 
-nav.menu = showMenu;
+// The menu always sits over a live demo of the board.
+nav.menu = () => { startAttract(); showMenu(); };
 nav.play = startRun;
 
 setLocale(locale());
@@ -20,6 +21,7 @@ function loop(ts: number) {
 }
 requestAnimationFrame(loop);
 
+startAttract();
 renderMenu();
 
 // Dev-only handle for driving the game from the browser console.

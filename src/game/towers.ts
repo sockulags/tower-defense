@@ -49,9 +49,10 @@ export function canBuild(g: Game, x: number, y: number) {
 export const towerAt = (g: Game, x: number, y: number) =>
   g.towers.find((t) => Math.hypot(t.x - x, t.y - y) < TOWER_SPACING / 2);
 
-export function placeTower(g: Game, type: TowerType, x: number, y: number): Tower | null {
+/** `anyTower` skips the watch-level unlock check, for the menu's background demo. */
+export function placeTower(g: Game, type: TowerType, x: number, y: number, anyTower = false): Tower | null {
   const d = TOWERS[type];
-  if (g.gold < d.cost || !canBuild(g, x, y) || !towerUnlocked(type)) return null;
+  if (g.gold < d.cost || !canBuild(g, x, y) || (!anyTower && !towerUnlocked(type))) return null;
   g.gold -= d.cost;
   const t: Tower = {
     type, x, y, level: 1, branch: null, cd: 0,

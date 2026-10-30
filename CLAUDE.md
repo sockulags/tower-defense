@@ -35,7 +35,8 @@ Browser tower defense game, built with Vite and TypeScript. The game board is re
 
 - The board fills the whole window (`#game` is fixed full-screen). Controls live on the board as storybook props instead of a toolbar: a resource plaque top left, round buttons top right (speed, pause, sound, menu), a build belt of tower medallions bottom centre, a wave horn anchored just below the road's entrance, and a tower card that opens beside the selected tower. World-anchored pieces are positioned each frame in `placeAnchors` (`ui/play.ts`) via `GameView.screenOf`.
 - Belt medallions and tower cards show real 3D portraits rendered once by `towerPortraits()` in `three/view.ts`.
-- Game-screen styles live under `#game` in `src/style.css` (parchment `--parch`, ink `--ink-d`, brass `--brass`), with chunky ink outlines and drop shadows to match the cel-shaded board. The menu is still in the older dark style and has not been restyled yet.
+- The whole UI shares one storybook style in `src/style.css` (parchment `--parch`, ink `--ink-d`, brass `--brass`, stardust `--dust`), with chunky ink outlines and drop shadows to match the cel-shaded board. There is no dark theme any more.
+- The board is always on screen. Behind the menu, `startAttract()` in `ui/play.ts` runs a silent, endless demo on Mill Hill with one of each tower; `mode` in `play.ts` keeps input and the HUD off during the demo. Map cards show real stills from `mapPortrait()` and the tower codex uses `towerPortraits()`, both cached in `three/view.ts`.
 
 ## Planning
 

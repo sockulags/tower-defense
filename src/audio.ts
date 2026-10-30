@@ -1,5 +1,7 @@
 let ac: AudioContext | null = null;
 let muted = false;
+/** Silences game sounds without touching the player's mute choice, e.g. for the menu's background demo. */
+let quiet = false;
 let lastShot = 0;
 
 /** Browsers only allow audio after a user gesture, so call this from input handlers. */
@@ -10,9 +12,10 @@ export function initAudio() {
 
 export const isMuted = () => muted;
 export const setMuted = (m: boolean) => { muted = m; };
+export const setQuiet = (q: boolean) => { quiet = q; };
 
 export function tone(f: number, dur: number, type: OscillatorType = 'sine', vol = 0.05, slide = 0) {
-  if (muted || !ac) return;
+  if (muted || quiet || !ac) return;
   const t = ac.currentTime;
   const o = ac.createOscillator();
   const g = ac.createGain();
