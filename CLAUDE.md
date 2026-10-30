@@ -29,7 +29,13 @@ Browser tower defense game, built with Vite and TypeScript. The game board is re
 - Two sides in color: the village is warm brass, wood and cool stone; the Gloom is violet and magenta ink with yellow-green eyes, and it stains the grass purple around its rift.
 - Everything moves: towers pop in when built, idle (swinging lanterns, floating crystals, living flames) and react when they fire (recoil, flare). Enemies spawn with a pop, waddle, flap or stomp by type, flash white when hit, and squash and burst when killed. Faces sit high on the front so they read from the near top-down camera.
 - The look is soft, not blocky: one smooth terrain mesh with the road painted in along a rounded curve, a rounded island, and smooth shading by default.
-- Camera: close to top-down by default. The player may turn (right or middle drag) and zoom (wheel) within the limits set in `GameView`; there is no panning, and Reset view returns to the default.
+- Camera: fixed, orthographic, tilted `CAMERA_TILT` from straight down so models show a little of their sides. `fitCamera` frames the whole playable board for any window shape, and the island has `MARGIN` tiles of scenery so the rest of the screen is land, never sky. The player cannot turn or zoom; the user asked for a fixed view.
+
+## Game screen
+
+- The board fills the whole window (`#game` is fixed full-screen). Controls live on the board as storybook props instead of a toolbar: a resource plaque top left, round buttons top right (speed, pause, sound, menu), a build belt of tower medallions bottom centre, a wave horn anchored just below the road's entrance, and a tower card that opens beside the selected tower. World-anchored pieces are positioned each frame in `placeAnchors` (`ui/play.ts`) via `GameView.screenOf`.
+- Belt medallions and tower cards show real 3D portraits rendered once by `towerPortraits()` in `three/view.ts`.
+- Game-screen styles live under `#game` in `src/style.css` (parchment `--parch`, ink `--ink-d`, brass `--brass`), with chunky ink outlines and drop shadows to match the cel-shaded board. The menu is still in the older dark style and has not been restyled yet.
 
 ## Planning
 

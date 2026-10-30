@@ -1,5 +1,5 @@
-/* Layout: a lantern-lit board as the stage, a ledger-like side panel; the menu reads like a night watchman's logbook.
-   The game commits to a single dark look, so there is no light theme. */
+/* Two worlds: the menu is a dark watchman's logbook; the game screen (#game, below) is a bright
+   storybook board whose controls are parchment props with ink outlines. */
 :root {
   --night: #10111c;
   --dusk: #1a1b2c;
@@ -77,40 +77,183 @@ button { font: inherit; color: inherit; }
 .cx canvas { width: 44px; height: 44px; }
 .cx.locked { opacity: .5; }
 
-/* Game */
-#game { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 14px 18px; align-items: start; }
-@media (max-width: 900px) { #game { grid-template-columns: minmax(0, 1fr); } }
-.hud { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; }
-.stat { display: flex; gap: 6px; align-items: baseline; font-size: 1.15rem; font-weight: 700; }
-.stat small { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
-.hud .spacer { flex: 1; }
-.hud .ctrl { display: flex; flex-wrap: wrap; gap: 6px; }
-.board { position: relative; min-width: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: #161735; }
-#cv { width: 100%; height: auto; aspect-ratio: 16 / 10; display: block; touch-action: none; cursor: crosshair; }
-#cv2d { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(8, 8, 18, .74); border-radius: 8px; padding: 16px; }
-.ovbox { display: grid; gap: 12px; justify-items: center; text-align: center; max-width: 420px; }
-.ovbox .big { font-family: var(--display); font-size: clamp(1.8rem, 5vw, 2.8rem); color: var(--lamp); line-height: 1.05; }
-.side { display: grid; gap: 14px; }
-.palette { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.tbtn { display: grid; grid-template-columns: 34px 1fr; gap: 8px; align-items: center; text-align: left; background: var(--dusk); border: 1px solid var(--line); border-radius: 8px; padding: 8px; cursor: pointer; }
-.tbtn canvas { width: 34px; height: 34px; }
-.tbtn .c { font-size: .85rem; color: var(--lamp); font-variant-numeric: tabular-nums; }
-.tbtn.sel { border-color: var(--lamp); background: #2a2433; }
-.tbtn:disabled { opacity: .4; cursor: not-allowed; }
-.tbtn .k { font-size: .72rem; color: var(--muted); }
-.info { background: var(--dusk); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 10px; min-height: 120px; }
-.info .stats { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: .95rem; margin: 0; }
-.info .stats dt { color: var(--muted); }
-.info .stats dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
-.branch { display: grid; gap: 6px; }
-.branch button { text-align: left; display: grid; gap: 2px; padding: 8px 10px; }
-.branch button span { font-size: .85rem; color: var(--muted); font-weight: 400; }
-.acts { display: flex; gap: 8px; flex-wrap: wrap; }
-.acts .btn { flex: 1; }
-.levelpips { display: flex; gap: 4px; }
-.levelpips b { flex: 1; height: 6px; border-radius: 3px; background: #0b0c14; }
-.levelpips b.f { background: var(--lamp); }
-.hint { font-size: .88rem; color: var(--muted); }
-.keys { font-size: .8rem; color: var(--muted); }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+/* Game: the board fills the window and the controls sit on it like storybook props. */
+#game {
+  --parch: #f8ecd2; --parch-2: #ecd7ad; --ink-d: #2a1c2c; --brass: #f0bf55; --brass-d: #b07d22;
+  position: fixed; inset: 0; z-index: 5; background: #3f7a45; color: var(--ink-d); overflow: hidden; color-scheme: light;
+}
+body.playing { overflow: hidden; }
+#cv, #cv2d { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#cv { touch-action: none; cursor: crosshair; }
+#cv2d { pointer-events: none; }
+.play-hud { position: absolute; inset: 0; pointer-events: none; }
+.play-hud > * { pointer-events: auto; }
+.play-hud button { cursor: pointer; }
+#game :focus-visible { outline: 3px solid #4f7fc9; outline-offset: 2px; }
+.panel {
+  background: var(--parch); color: var(--ink-d);
+  border: 3px solid var(--ink-d); border-radius: 16px; box-shadow: 0 4px 0 var(--ink-d);
+}
+.ico { display: inline-grid; place-items: center; }
+.ico svg, .orb svg, .price svg, #game em svg, .x svg { width: 1em; height: 1em; display: block; }
+.fine { font-size: .85rem; opacity: .72; margin: 0; }
+
+/* Resource plaque, top left */
+.plaque {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top, 0px)); left: max(14px, env(safe-area-inset-left, 0px));
+  display: flex; align-items: center; gap: 18px; padding: 6px 16px 6px 12px;
+}
+.res { display: flex; align-items: center; gap: 7px; font-family: var(--display); font-size: 1.45rem; font-weight: 800; line-height: 1; }
+.res .ico { font-size: 1.6rem; }
+.res.wave { gap: 6px; padding-left: 14px; border-left: 2px dashed rgba(42, 28, 44, .3); }
+.res small { font-family: var(--body); font-size: .78rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; opacity: .7; }
+.res .map { text-transform: none; letter-spacing: 0; font-weight: 500; opacity: .6; }
+
+/* Round buttons, top right */
+.corner {
+  position: absolute; display: flex; gap: 8px;
+  top: max(14px, env(safe-area-inset-top, 0px)); right: max(14px, env(safe-area-inset-right, 0px));
+}
+.orb {
+  width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; font-size: 1.25rem; padding: 0;
+  font-family: var(--display); font-weight: 800; background: var(--parch); color: var(--ink-d); border: 3px solid var(--ink-d);
+  box-shadow: 0 4px 0 var(--ink-d); transition: transform .08s, box-shadow .08s, background .12s;
+}
+.orb:hover { background: #fff6e3; }
+.orb:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink-d); }
+.orb.on { background: var(--brass); }
+.pop { position: absolute; top: 60px; right: 0; display: grid; gap: 8px; padding: 10px; min-width: 200px; }
+
+/* Shared button styles inside the game */
+.go, .ghost {
+  border: 3px solid var(--ink-d); border-radius: 12px; padding: 8px 14px; font-weight: 800; color: var(--ink-d);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: transform .08s, box-shadow .08s, background .12s;
+}
+.go { background: var(--brass); box-shadow: 0 4px 0 var(--ink-d); }
+.go:hover:not(:disabled) { background: #ffd273; }
+.go:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink-d); }
+.go:disabled { background: var(--parch-2); opacity: .7; cursor: not-allowed; }
+#game em { font-style: normal; display: inline-flex; align-items: center; gap: 4px; }
+.ghost { background: transparent; border-color: rgba(42, 28, 44, .35); border-width: 2px; }
+.ghost:hover { background: rgba(42, 28, 44, .07); }
+.ghost.danger { color: #a3262e; }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* The wave horn stands at the road's entrance */
+/* Sits just below the road's entrance so it never covers the shadows walking in. */
+.call { position: absolute; transform: translate(-30%, 38px); display: flex; align-items: center; gap: 8px; }
+.horn {
+  display: flex; align-items: center; gap: 10px; padding: 8px 18px 8px 12px; color: var(--ink-d);
+  background: var(--brass); border: 3px solid var(--ink-d); border-radius: 999px; box-shadow: 0 5px 0 var(--ink-d);
+  animation: bob 1.8s ease-in-out infinite; white-space: nowrap;
+}
+.horn .ico { font-size: 1.7rem; }
+.horn .txt { display: grid; text-align: left; line-height: 1.05; }
+.horn b { font-family: var(--display); font-size: 1.2rem; }
+.horn small { font-size: .78rem; font-weight: 700; opacity: .75; }
+.horn:hover:not(:disabled) { background: #ffd273; }
+.horn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink-d); }
+.horn:disabled { background: var(--parch); animation: none; cursor: default; }
+.chip {
+  font-size: .78rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 3px 12px; color: var(--ink-d);
+  background: rgba(248, 236, 210, .92); border: 2px solid var(--ink-d); border-radius: 999px;
+}
+.chip.on { background: var(--brass); }
+@keyframes bob { 50% { transform: translateY(-4px); } }
+
+/* Build belt, bottom centre */
+.belt {
+  position: absolute; left: 50%; transform: translateX(-50%);
+  bottom: max(14px, env(safe-area-inset-bottom, 0px));
+  display: flex; gap: 12px; padding: 10px 16px 8px;
+}
+.medal { position: relative; display: grid; justify-items: center; gap: 4px; background: none; border: 0; padding: 0; color: var(--ink-d); }
+.medal .face {
+  width: 70px; height: 70px; border-radius: 50%; overflow: hidden; display: grid; place-items: center;
+  background: radial-gradient(circle at 50% 40%, #fffaf0, #ead2a4); border: 3px solid var(--ink-d);
+  box-shadow: 0 4px 0 var(--ink-d); transition: transform .12s, box-shadow .12s;
+}
+.medal img { width: 76px; height: 76px; margin-top: 4px; }
+.medal:hover .face { transform: translateY(-3px); box-shadow: 0 7px 0 var(--ink-d); }
+.medal.sel .face { transform: translateY(-7px); box-shadow: 0 11px 0 var(--ink-d), 0 0 0 4px var(--brass); }
+.medal .key {
+  position: absolute; top: -4px; left: -2px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--ink-d); color: var(--parch); font-size: .72rem; font-weight: 800;
+}
+.medal .price {
+  display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-size: .88rem; padding: 0 9px;
+  background: var(--parch-2); border: 2px solid var(--ink-d); border-radius: 999px; font-variant-numeric: tabular-nums;
+}
+.medal.poor .face { filter: saturate(.35) brightness(.88); }
+.medal.poor .price { background: #f2b8b3; }
+.medal.locked { cursor: not-allowed; }
+.medal.locked .face { filter: grayscale(1) brightness(.75); }
+
+/* Tooltip above the belt */
+.tip { position: absolute; bottom: 130px; width: 270px; padding: 12px 14px; display: grid; gap: 6px; pointer-events: none; }
+.tip h3, .tcard h3 { font-family: var(--display); font-size: 1.15rem; margin: 0; }
+
+/* Tower card, opened beside the selected tower */
+.tcard {
+  position: absolute; left: 0; top: 0; width: 270px; padding: 12px 14px 14px; display: grid; gap: 10px;
+  border-top: 6px solid var(--accent, var(--ink-d));
+}
+.tcard header { display: grid; grid-template-columns: 58px 1fr; gap: 10px; align-items: center; padding-right: 24px; }
+.tcard header img { width: 58px; height: 58px; border-radius: 50%; background: radial-gradient(circle at 50% 40%, #fffaf0, #ead2a4); border: 2px solid var(--ink-d); }
+.tcard .x { position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; border-radius: 50%; border: 0; background: transparent; font-size: 1rem; display: grid; place-items: center; color: var(--ink-d); }
+.tcard .x:hover { background: rgba(42, 28, 44, .08); }
+.lvl-pips { display: flex; gap: 4px; margin-top: 5px; }
+.lvl-pips b { width: 18px; height: 7px; border-radius: 4px; background: rgba(42, 28, 44, .15); }
+.lvl-pips b.f { background: var(--brass-d); }
+.tcard dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0; font-size: .92rem; }
+.tcard dt { opacity: .65; }
+.tcard dd { margin: 0; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tcard .btnrow .go { flex: 1; }
+.ask { margin: 0; font-weight: 800; }
+.branches { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.branch {
+  display: grid; gap: 4px; align-content: start; text-align: left; padding: 8px 9px; color: var(--ink-d);
+  background: #fffaf0; border: 2px solid var(--ink-d); border-radius: 12px; box-shadow: 0 3px 0 var(--ink-d);
+  border-top: 5px solid var(--accent);
+}
+.branch b { font-family: var(--display); font-size: .98rem; }
+.branch span { font-size: .78rem; opacity: .75; }
+.branch em { font-weight: 800; font-size: .85rem; }
+.branch:hover:not(:disabled) { background: #fff3d6; }
+.branch:disabled { opacity: .55; cursor: not-allowed; }
+
+/* Toasts and banners */
+.toast {
+  position: absolute; left: 50%; transform: translateX(-50%); top: calc(max(14px, env(safe-area-inset-top, 0px)) + 66px);
+  padding: 8px 16px; font-weight: 700; font-size: .95rem; max-width: min(560px, calc(100% - 32px)); text-align: center;
+  pointer-events: none;
+}
+.banner {
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); pointer-events: none;
+  font-family: var(--display); font-size: clamp(2.2rem, 6vw, 4rem); font-weight: 800; color: var(--parch);
+  -webkit-text-stroke: 3px var(--ink-d); paint-order: stroke fill; text-shadow: 0 5px 0 var(--ink-d);
+}
+
+/* End of run */
+.overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(42, 28, 44, .45); padding: 16px; }
+.ovbox { display: grid; gap: 12px; justify-items: center; text-align: center; max-width: 440px; padding: 22px 26px; }
+.ovbox .big { font-family: var(--display); font-size: clamp(1.9rem, 5vw, 2.8rem); line-height: 1.05; font-weight: 800; }
+.ovbox p { margin: 0; }
+#game .ovbox .dust { font-size: 1.35rem; font-weight: 800; color: #6a46b8; }
+.ovbox .good { color: #2f7a3f; }
+.ovbox .btnrow { justify-content: center; width: 100%; }
+.ovbox .btnrow > * { flex: 1; }
+
+@media (max-width: 760px) {
+  .plaque { gap: 12px; padding: 4px 12px 4px 8px; }
+  .res { font-size: 1.15rem; }
+  .res .map { display: none; }
+  .orb { width: 40px; height: 40px; }
+  .medal .face { width: 56px; height: 56px; }
+  .medal img { width: 62px; height: 62px; }
+  .belt { gap: 8px; padding: 8px 10px 6px; }
+  .tcard { width: 240px; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

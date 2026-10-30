@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -13,7 +13,10 @@ import { C, gem, glow, makeBoard, makeEnemy, makeHeart, makePortal, makeTower, t
 import type { Enemy, Fx, Game, Shot, Tower, TowerType } from '../types';
 
 const FONT = '"Alegreya Sans", sans-serif';
-const FOG = '#f3d6ae';
+/** Camera angle from straight down: steep enough to read the board, shallow enough to see the sides of models. */
+const CAMERA_TILT = 0.68;
+/** World units of breathing room kept around the playable board. */
+const BOARD_PAD = 0.45;
 const MAX_POINTS = 1600;
 /** Enemies are drawn a little larger than their hit radius so they read at a distance. */
 const ENEMY_SCALE = 1.45;
@@ -52,6 +55,41 @@ function addOutlines(root: THREE.Object3D) {
   }
 }
 
+/**
+ * Collapses the static scenery of a board into one mesh per material, so a forest of small
+ * props costs a handful of draw calls. Animated pieces (windmill blades, lamp posts) and the
+ * vertex-coloured ground are left as they are.
+ */
+function mergeStatic(board: THREE.Group): THREE.Group {
+  board.updateMatrixWorld(true);
+  const keep = new Set(['blades', 'lamp-post', 'ground']);
+  const groups = new Map<string, { mat: THREE.Material; geos: THREE.BufferGeometry[]; shadow: boolean; outline: boolean }>();
+  const merged: THREE.Mesh[] = [];
+  board.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh) return;
+    for (let p: THREE.Object3D | null = m; p && p !== board; p = p.parent) if (keep.has(p.name)) return;
+    const mat = m.material as THREE.Material;
+    const key = `${mat.uuid}:${m.castShadow}:${!m.userData.noOutline}`;
+    let entry = groups.get(key);
+    if (!entry) { entry = { mat, geos: [], shadow: m.castShadow, outline: !m.userData.noOutline }; groups.set(key, entry); }
+    const geo = (m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone()).applyMatrix4(m.matrixWorld);
+    for (const name of Object.keys(geo.attributes)) if (!['position', 'normal', 'uv'].includes(name)) geo.deleteAttribute(name);
+    entry.geos.push(geo);
+    merged.push(m);
+  });
+  for (const m of merged) { m.removeFromParent(); m.geometry.dispose(); }
+  for (const { mat, geos, shadow, outline } of groups.values()) {
+    const mesh = new THREE.Mesh(mergeGeometries(geos), mat);
+    mesh.castShadow = shadow;
+    mesh.receiveShadow = true;
+    if (!outline) mesh.userData.noOutline = true;
+    board.add(mesh);
+    geos.forEach((g) => g.dispose());
+  }
+  return board;
+}
+
 function disposeTree(obj: THREE.Object3D) {
   obj.traverse((o) => { if ((o as THREE.Mesh).geometry) (o as THREE.Mesh).geometry.dispose(); });
 }
@@ -61,6 +99,38 @@ const byName = (root: THREE.Object3D, name: string) => {
   root.traverse((o) => { if (o.name === name) out.push(o); });
   return out;
 };
+
+/**
+ * Renders a small 3D portrait of each tower, in the game's own lighting and outline style,
+ * for the build belt and tower cards. Uses a short-lived renderer of its own.
+ */
+export function towerPortraits(size = 128, level = 2): Record<TowerType, string> {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  const scene = new THREE.Scene();
+  scene.add(new THREE.HemisphereLight('#d5e6ff', '#8a6b4c', 1.4));
+  const sun = new THREE.DirectionalLight('#ffd7a0', 2.4);
+  sun.position.set(-3, 4, 3);
+  scene.add(sun);
+  const cam = new THREE.OrthographicCamera(-0.82, 0.82, 0.82, -0.82, 0.1, 20);
+  cam.position.set(2.4, 2.6, 4.2);
+  cam.lookAt(0, 0.68, 0);
+  const out = {} as Record<TowerType, string>;
+  for (const type of Object.keys(TOWERS) as TowerType[]) {
+    const obj = makeTower(type, level, null);
+    addOutlines(obj);
+    scene.add(obj);
+    renderer.render(scene, cam);
+    out[type] = canvas.toDataURL();
+    scene.remove(obj);
+    disposeTree(obj);
+  }
+  renderer.dispose();
+  renderer.forceContextLoss();
+  return out;
+}
 
 // ---------- per-object view state ----------
 
@@ -100,8 +170,9 @@ function skyTexture() {
 export class GameView {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(30, 16 / 10, 0.1, 120);
-  private controls: OrbitControls;
+  /** Fixed orthographic camera tilted toward the player, so the board keeps its shape and models show their sides. */
+  private camera = new THREE.OrthographicCamera(-10, 10, 6, -6, 0.1, 100);
+  private size = { w: 960, h: 600 };
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
   private overlay: CanvasRenderingContext2D;
@@ -150,14 +221,13 @@ export class GameView {
 
     // Golden hour: a low warm sun casting long shadows, a cool sky fill, and a soft rim from behind.
     this.scene.background = skyTexture();
-    this.scene.fog = new THREE.Fog(FOG, 30, 60);
     this.scene.add(this.world);
     this.scene.add(new THREE.HemisphereLight('#d5e6ff', '#8a6b4c', 1.25));
     const sun = new THREE.DirectionalLight('#ffd7a0', 2.4);
     sun.position.set(-9, 8, 5);
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 10, bottom: -10, near: 1, far: 40 });
+    Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 12, bottom: -12, near: 1, far: 45 });
     sun.shadow.bias = -0.0006;
     sun.shadow.normalBias = 0.025;
     this.scene.add(sun);
@@ -165,21 +235,6 @@ export class GameView {
     rim.position.set(6, 5, -10);
     this.scene.add(rim);
     this.scene.add(this.heartLight);
-
-    // Right or middle drag turns the view, the wheel zooms; left click stays free for building.
-    this.controls = new OrbitControls(this.camera, canvas);
-    this.controls.enablePan = false;
-    this.controls.enableDamping = true;
-    this.controls.dampingFactor = 0.12;
-    this.controls.minPolarAngle = 0.1;
-    this.controls.maxPolarAngle = 0.95;
-    this.controls.minAzimuthAngle = -0.75;
-    this.controls.maxAzimuthAngle = 0.75;
-    this.controls.minDistance = 13;
-    this.controls.maxDistance = 30;
-    this.controls.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.ROTATE };
-    this.controls.touches = { ONE: null as unknown as THREE.TOUCH, TWO: THREE.TOUCH.DOLLY_ROTATE };
-    this.resetCamera();
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -226,11 +281,20 @@ export class GameView {
     this.resize();
   }
 
-  /** The default view: close to top-down, turned straight at the board. */
-  resetCamera() {
-    this.controls.target.set(0, 0, 0.35);
-    this.camera.position.setFromSphericalCoords(24.5, 0.42, 0).add(this.controls.target);
-    this.controls.update();
+  /**
+   * Frames the whole playable board for the current screen shape. The camera looks down at
+   * CAMERA_TILT from vertical; the visible ground is then 2*hw wide and 2*hh/cos(tilt) deep, so we
+   * pick the smallest frustum that contains the board. Wider or taller screens show more of the
+   * scenery around it rather than empty sky.
+   */
+  private fitCamera() {
+    const aspect = this.size.w / this.size.h, cos = Math.cos(CAMERA_TILT);
+    const hw = Math.max(COLS / 2 + BOARD_PAD, (ROWS / 2 + BOARD_PAD) * cos * aspect);
+    const hh = hw / aspect;
+    Object.assign(this.camera, { left: -hw, right: hw, top: hh, bottom: -hh });
+    this.camera.position.set(0, Math.cos(CAMERA_TILT) * 40, Math.sin(CAMERA_TILT) * 40);
+    this.camera.lookAt(0, 0, 0);
+    this.camera.updateProjectionMatrix();
   }
 
   private makeRangeRing() {
@@ -243,7 +307,9 @@ export class GameView {
 
   private resize() {
     const w = this.canvas.clientWidth || 960;
-    const h = Math.round((w * 10) / 16);
+    const h = this.canvas.clientHeight || 600;
+    this.size = { w, h };
+    this.fitCamera();
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h);
     this.bloom.resolution.set(w, h);
@@ -267,7 +333,7 @@ export class GameView {
     this.setGhost(null);
     if (!g) return;
 
-    const board = makeBoard(g.map);
+    const board = mergeStatic(makeBoard(g.map));
     addOutlines(board);
     board.traverse((o) => {
       if (o.name === 'blades') this.mills.push(o);
@@ -292,8 +358,15 @@ export class GameView {
     this.world.add(this.portal);
   }
 
+  /** Where a board point (simulation pixels, at a height in world units) appears on screen, in CSS pixels. */
+  screenOf(x: number, y: number, height = 0) {
+    this.syncSize();
+    return this.toScreen(wx(x), height, wz(y));
+  }
+
   /** Converts a pointer position to a board point in simulation pixels, or null when it misses the ground. */
   pickPoint(clientX: number, clientY: number) {
+    this.syncSize();
     const r = this.canvas.getBoundingClientRect();
     const ndc = new THREE.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
     this.raycaster.setFromCamera(ndc, this.camera);
@@ -302,7 +375,13 @@ export class GameView {
     return { x: (hit.x + COLS / 2) * T, y: (hit.z + ROWS / 2) * T };
   }
 
+  /** Resize observers can lag (for example in a background tab), so check the canvas size directly too. */
+  private syncSize() {
+    if (this.canvas.clientWidth && (this.canvas.clientWidth !== this.size.w || this.canvas.clientHeight !== this.size.h)) this.resize();
+  }
+
   render(g: Game) {
+    this.syncSize();
     const now = performance.now() / 1000;
     this.syncTowers(g, now);
     this.syncEnemies(g, now);
@@ -313,8 +392,7 @@ export class GameView {
     this.animateWorld(g, now);
     this.drawPoints(g);
 
-    this.controls.update();
-    // Shake the world rather than the camera so it never fights the camera controls.
+    // Shake the world rather than the camera so the framing never drifts.
     const shake = g.shake * 0.25;
     this.scene.position.set((Math.random() - 0.5) * shake, 0, (Math.random() - 0.5) * shake);
     this.composer.render();
@@ -713,8 +791,7 @@ export class GameView {
   /** Projects a world point to overlay pixels. */
   private toScreen(x: number, y: number, z: number) {
     const p = this.tmp.set(x + this.scene.position.x, y, z + this.scene.position.z).project(this.camera);
-    const w = this.canvas.clientWidth || 960, h = (w * 10) / 16;
-    return { sx: ((p.x + 1) / 2) * w, sy: ((1 - p.y) / 2) * h };
+    return { sx: ((p.x + 1) / 2) * this.size.w, sy: ((1 - p.y) / 2) * this.size.h };
   }
 
   private drawOverlay(g: Game) {
@@ -723,7 +800,8 @@ export class GameView {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, c.width, c.height);
     ctx.restore();
-    const scale = (this.canvas.clientWidth || 960) / 960;
+    // One tile's width on screen, so bars and text scale with the board.
+    const scale = Math.min(1.6, this.size.w / (this.camera.right - this.camera.left) / 60);
 
     for (const e of g.enemies) {
       if (e.hp >= e.maxHp) continue;

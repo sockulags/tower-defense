@@ -624,14 +624,17 @@ const smoothstep = (a: number, b: number, x: number) => {
   return t * t * (3 - 2 * t);
 };
 
-export const MARGIN = 1;
+/** Tiles of scenery around the playable board, so any screen shape is filled with land, not sky. */
+export const MARGIN = 3;
 /** Tile (tx, ty) centre in world units. One tile is one unit; the board is centred on the origin. */
 export const tileToWorld = (tx: number, ty: number) => ({ x: tx + 0.5 - COLS / 2, z: ty + 0.5 - ROWS / 2 });
 
 /** Road centreline in world units, with each corner rounded into a short curve. */
 export function roadCurve(map: MapDef, radius = 0.45): THREE.Vector2[] {
   const pts = map.pts.map(([tx, ty]) => { const w = tileToWorld(tx, ty); return new THREE.Vector2(w.x, w.z); });
-  const out: THREE.Vector2[] = [pts[0].clone()];
+  // The road visibly runs on behind the rift to the edge of the island.
+  const back = pts[0].clone().sub(pts[1]).normalize();
+  const out: THREE.Vector2[] = [pts[0].clone().addScaledVector(back, MARGIN + 2), pts[0].clone()];
   for (let i = 1; i < pts.length - 1; i++) {
     const a = pts[i - 1], p = pts[i], b = pts[i + 1];
     const p0 = p.clone().addScaledVector(p.clone().sub(a).normalize(), -radius);

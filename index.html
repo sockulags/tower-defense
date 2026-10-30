@@ -44,32 +44,38 @@
     </section>
 
     <section id="game" hidden>
-      <div class="hud">
-        <div class="stat"><small id="hLivesL"></small><span class="num" id="hLives" style="color:var(--bad)">20</span></div>
-        <div class="stat"><small id="hGoldL"></small><span class="num" id="hGold" style="color:var(--lamp)">0</span></div>
-        <div class="stat"><small id="hWaveL"></small><span class="num" id="hWave">0</span></div>
-        <div class="stat"><small id="hMapName"></small></div>
-        <div class="spacer"></div>
-        <div class="ctrl">
-          <button class="btn primary" id="bWave"></button>
-          <button class="btn" id="bAuto"></button>
-          <button class="btn" id="bSpeed">1×</button>
-          <button class="btn" id="bPause"></button>
-          <button class="btn" id="bMute"></button>
-          <button class="btn" id="bCam"></button>
-          <button class="btn" id="bQuit"></button>
+      <canvas id="cv" width="960" height="600"></canvas>
+      <canvas id="cv2d" width="960" height="600"></canvas>
+      <div class="play-hud">
+        <div class="plaque panel">
+          <div class="res"><span class="ico" id="hLivesIcon"></span><b class="num" id="hLives">20</b></div>
+          <div class="res"><span class="ico" id="hGoldIcon"></span><b class="num" id="hGold">0</b></div>
+          <div class="res wave"><small id="hWaveL"></small><b class="num" id="hWave">0</b><small class="map" id="hMapName"></small></div>
         </div>
+
+        <div class="corner">
+          <button class="orb" id="bSpeed">1×</button>
+          <button class="orb" id="bPause"></button>
+          <button class="orb" id="bMute"></button>
+          <button class="orb" id="bMenu"></button>
+          <div class="pop panel" id="menuPop" hidden>
+            <button class="go" id="mResume"></button>
+            <button class="ghost danger" id="bQuit"></button>
+          </div>
+        </div>
+
+        <div class="call" id="call">
+          <button class="horn" id="bWave"><span class="ico" id="bWaveIcon"></span><span class="txt"><b id="bWaveLabel"></b><small id="bWaveSub"></small></span></button>
+          <button class="chip" id="bAuto"></button>
+        </div>
+
+        <div class="toast panel" id="toast" hidden></div>
+        <div class="banner" id="pausedBanner" hidden></div>
+        <div class="tcard panel" id="card" hidden></div>
+        <div class="tip panel" id="tip" hidden></div>
+        <div class="belt panel" id="belt"></div>
       </div>
-      <div class="board">
-        <canvas id="cv" width="960" height="600"></canvas>
-        <canvas id="cv2d" width="960" height="600"></canvas>
-        <div class="overlay" id="ov" hidden><div class="ovbox" id="ovbox"></div></div>
-      </div>
-      <aside class="side">
-        <div class="palette" id="palette"></div>
-        <div class="info" id="info"></div>
-        <p class="keys" id="keys"></p>
-      </aside>
+      <div class="overlay" id="ov" hidden><div class="ovbox panel" id="ovbox"></div></div>
     </section>
   </div>
   <script type="module" src="/src/main.ts"></script>
