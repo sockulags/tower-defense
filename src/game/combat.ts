@@ -2,20 +2,28 @@ import { T } from '../config';
 import { TOWERS } from '../data/towers';
 import { sfx } from '../audio';
 import { burst, floatText } from './fx';
+import { JAR_GOLD } from '../data/hero';
+import { heroReach } from './hero';
 import { stats } from './towers';
-import type { Enemy, Game, Shot, Stats, Tower } from '../types';
+import type { Enemy, Game, Shot, Source, Stats, Tower } from '../types';
 
-export function damage(g: Game, e: Enemy, amount: number, tw: Tower | null) {
+export function damage(g: Game, e: Enemy, amount: number, src: Source | null) {
   if (e.dead) return;
   const real = Math.min(e.hp, amount);
   e.hp -= amount;
   e.lastHit = g.t;
-  if (tw) tw.dealt += real;
+  if (src) src.dealt += real;
   if (e.hp <= 0) {
     e.dead = true;
     g.gold += e.reward;
     g.kills++;
-    if (tw) tw.kills++;
+    if (src) src.kills++;
+    // Firefly Jar: shadows that fall near the Warden drop extra gold.
+    const h = g.hero;
+    if (h && h.loadout.charm === 'jar' && Math.hypot(e.x - h.x, e.y - h.y) <= heroReach(h)) {
+      g.gold += JAR_GOLD;
+      floatText(g, e.x, e.y - 16, `+${JAR_GOLD}`, '#d8ff9a', 0.9, 13);
+    }
     burst(g, e.x, e.y, e.def.color, e.type === 'giant' ? 40 : 10);
     sfx.kill();
     if (e.type === 'giant') {
@@ -50,7 +58,7 @@ export function updateTower(g: Game, t: Tower, dt: number) {
   if (d.kind === 'pulse' || s.area) {
     for (const e of targets) {
       damage(g, e, s.dmg, t);
-      if (s.burn) { e.burnUntil = g.t + 3; e.burnDps = Math.max(e.burnDps, s.burn); e.burnTw = t; }
+      if (s.burn) { e.burnUntil = g.t + 3; e.burnDps = Math.max(e.burnDps, s.burn); e.burnSrc = t; }
       if (s.stun && Math.random() < s.stun) e.stun = g.t + 0.6;
       if (s.slow) applySlow(g, e, s);
     }
@@ -63,7 +71,7 @@ export function updateTower(g: Game, t: Tower, dt: number) {
     t.angle = Math.atan2(e.y - t.y, e.x - t.x);
     g.shots.push({
       x: t.x + Math.cos(t.angle) * T * 0.25, y: t.y + Math.sin(t.angle) * T * 0.25,
-      target: e, tx: e.x, ty: e.y, speed: (d.speed ?? 10) * T, dmg: s.dmg, tw: t, s,
+      target: e, tx: e.x, ty: e.y, speed: (d.speed ?? 10) * T, dmg: s.dmg, src: t, look: t.type, s,
       kind: d.kind === 'shell' ? 'shell' : 'shot', color: d.color,
     });
   }
@@ -75,7 +83,7 @@ export function impact(g: Game, sh: Shot) {
     const R = sh.s.splash * T;
     for (const e of inRange(g, sh.tx, sh.ty, R)) {
       const falloff = 1 - 0.5 * Math.hypot(e.x - sh.tx, e.y - sh.ty) / R;
-      damage(g, e, sh.dmg * falloff, sh.tw);
+      damage(g, e, sh.dmg * falloff, sh.src);
     }
     g.fx.push({ k: 'ring', x: sh.tx, y: sh.ty, r0: 4, r1: R, life: 0.4, max: 0.4, color: sh.color });
     burst(g, sh.tx, sh.ty, sh.color, 14);
@@ -84,7 +92,7 @@ export function impact(g: Game, sh: Shot) {
       const near = inRange(g, sh.tx, sh.ty, T * 2.2);
       for (let i = 0; i < sh.s.shards && near.length; i++) {
         const e = near[Math.floor(Math.random() * near.length)];
-        damage(g, e, sh.dmg * 0.35, sh.tw);
+        damage(g, e, sh.dmg * 0.35, sh.src);
         g.fx.push({ k: 'line', x: sh.tx, y: sh.ty, x2: e.x, y2: e.y, life: 0.2, max: 0.2, color: sh.color });
       }
     }
@@ -92,6 +100,7 @@ export function impact(g: Game, sh: Shot) {
   }
   const e = sh.target;
   if (e.dead) return;
-  damage(g, e, sh.dmg, sh.tw);
+  damage(g, e, sh.dmg, sh.src);
   if (sh.s.slow) applySlow(g, e, sh.s);
+  if (sh.s.burn) { e.burnUntil = g.t + 3; e.burnDps = Math.max(e.burnDps, sh.s.burn); e.burnSrc = sh.src; }
 }

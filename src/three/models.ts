@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { COLS, ROWS } from '../config';
 import { ENEMIES } from '../data/enemies';
+import { CHARMS, CLOAKS, HATS, WEAPONS, type Loadout } from '../data/hero';
 import { TOWERS } from '../data/towers';
 import type { Branch, EnemyType, MapDef, TowerType } from '../types';
 
@@ -389,7 +390,7 @@ const lump: EnemyBuilder = (body, r) => {
 /** Veil: a hooded ghost inside a crackling ward. */
 const shimmer: EnemyBuilder = (body, r) => {
   const profile = [[0, r * 1.05], [r * 0.45, r * 0.95], [r * 0.62, r * 0.5], [r * 0.7, 0], [r * 0.85, -r * 0.6], [r * 1.0, -r * 0.95], [r * 0.85, -r * 0.9], [0.0, -r * 0.7]]
-    .map(([x, y]) => new THREE.Vector2(x, y));
+    .map(([x, y]) => new THREE.Vector2(x, y)).reverse();
   const cloak = group(body, 'cloak');
   mesh(new THREE.LatheGeometry(profile, 20), toon(C.inkVeil), cloak, 0, 0, 0, 'skin');
   // A glowing trim along the hem and a dark hood opening facing forward and up.
@@ -439,6 +440,117 @@ export function makeEnemy(type: EnemyType): THREE.Group {
   const body = group(root, 'body');
   ENEMY_BUILDERS[type](body, r);
   statusMarkers(root, r);
+  return root;
+}
+
+// ---------- the Warden ----------
+
+const SKIN = '#f2c7a0';
+// Lathe profiles run top to bottom for readability and are reversed so the faces point outward.
+
+/** A hood over the back half of the head, open at the face. */
+const hoodMat = (color: string) => cached(`hood:${color}`, () =>
+  new THREE.MeshToonMaterial({ color, gradientMap: TOON_STEPS, side: THREE.DoubleSide }));
+
+function hat(head: THREE.Object3D, loadout: Loadout) {
+  const cloak = CLOAKS[loadout.cloak].color, color = HATS[loadout.hat].color;
+  if (loadout.hat === 'hood') {
+    mesh(new THREE.SphereGeometry(0.165, 20, 14, Math.PI * 1.5, Math.PI, 0, Math.PI * 0.72), hoodMat(cloak), head, 0.01, 0.01, 0);
+    const tip = mesh(cone(0.07, 0.22, 10), toon(cloak), head, -0.16, -0.02, 0);
+    tip.rotation.z = Math.PI / 2 + 0.6;
+  } else if (loadout.hat === 'tricorn') {
+    mesh(cyl(0.21, 0.21, 0.025, 3), toon(color), head, 0, 0.11, 0).rotation.y = Math.PI;
+    mesh(cyl(0.1, 0.12, 0.1, 16), toon(color), head, -0.01, 0.17, 0);
+    mesh(torus(0.115, 0.012), toon(C.brass), head, -0.01, 0.13, 0).rotation.x = Math.PI / 2;
+  } else if (loadout.hat === 'wizard') {
+    mesh(cyl(0.23, 0.23, 0.02, 24), toon(color), head, 0, 0.1, 0);
+    const tall = mesh(cone(0.13, 0.42, 16), toon(color), head, -0.04, 0.31, 0);
+    tall.rotation.z = 0.25;
+    mesh(new THREE.OctahedronGeometry(0.035, 0), gem(C.lamp, 0.9), head, 0.09, 0.22, 0);
+  } else {
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * Math.PI * 2;
+      const leaf = mesh(sph(0.05, 10, 8), toon(i % 2 ? color : '#7cc46a'), head, Math.cos(a) * 0.13, 0.1, Math.sin(a) * 0.13);
+      leaf.scale.set(1.4, 0.45, 0.8);
+      leaf.rotation.y = -a;
+    }
+    mesh(sph(0.03, 8, 6), glow('#ffd7f0', 1.2), head, 0.12, 0.12, 0.06);
+  }
+}
+
+function weapon(hand: THREE.Object3D, loadout: Loadout) {
+  const color = WEAPONS[loadout.weapon].color;
+  if (loadout.weapon === 'staff') {
+    mesh(cyl(0.018, 0.022, 0.78, 8), toon(C.wood), hand, 0, 0.22, 0);
+    mesh(torus(0.04, 0.01), toon(C.brass), hand, 0, 0.58, 0).rotation.x = Math.PI / 2;
+    const l = lantern(hand, color, 0.7);
+    l.position.y = 0.72;
+  } else if (loadout.weapon === 'bell') {
+    mesh(cyl(0.018, 0.018, 0.16, 8), toon(C.wood), hand, 0, 0.06, 0);
+    const profile = [[0.01, 0.16], [0.05, 0.15], [0.07, 0.08], [0.09, 0.0], [0.11, -0.02], [0.0, -0.01]].map(([x, y]) => new THREE.Vector2(x, y)).reverse();
+    mesh(new THREE.LatheGeometry(profile, 20), toon(C.brass), hand, 0, -0.14, 0);
+    mesh(sph(0.025, 8, 6), glow(color, 1.8), hand, 0, -0.17, 0, 'core');
+  } else {
+    mesh(cyl(0.018, 0.02, 0.22, 8), toon(C.wood), hand, 0, 0.08, 0);
+    for (const z of [-1, 1]) {
+      const prong = mesh(cyl(0.014, 0.016, 0.14, 8), toon(C.wood), hand, 0, 0.24, z * 0.035);
+      prong.rotation.x = z * 0.35;
+    }
+    mesh(box(0.012, 0.012, 0.11), toon(C.cloth), hand, 0, 0.3, 0);
+    mesh(sph(0.03, 10, 8), gem(color, 0.8), hand, 0.03, 0.3, 0, 'core');
+  }
+}
+
+function charm(body: THREE.Object3D, loadout: Loadout) {
+  const color = CHARMS[loadout.charm].color;
+  if (loadout.charm === 'ember') mesh(new THREE.OctahedronGeometry(0.035, 0), glow(color, 1.6), body, 0.17, 0.3, -0.05);
+  else if (loadout.charm === 'badge') {
+    const star = new THREE.Shape();
+    for (let i = 0; i < 10; i++) {
+      const r = i % 2 ? 0.02 : 0.045, a = (i / 10) * Math.PI * 2 - Math.PI / 2;
+      if (i === 0) star.moveTo(Math.cos(a) * r, Math.sin(a) * r); else star.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    }
+    const s = mesh(new THREE.ExtrudeGeometry(star, { depth: 0.012, bevelEnabled: false }), toon(color), body, 0.19, 0.42, -0.07);
+    s.rotation.y = Math.PI / 2;
+  } else if (loadout.charm === 'jar') {
+    mesh(cyl(0.035, 0.035, 0.07, 12), glow('#d8f4ff', 0.6, 0.45), body, 0.15, 0.27, -0.09);
+    mesh(cyl(0.03, 0.03, 0.015, 12), toon(C.wood), body, 0.15, 0.31, -0.09);
+    mesh(sph(0.014, 8, 6), glow(color, 2), body, 0.15, 0.27, -0.09, 'core');
+  }
+}
+
+/**
+ * The Warden in a given loadout: a small cloaked figure facing +x on a stone post marker.
+ * Named parts for the view: 'aim' turns to the target, 'body' bobs, 'cloak' sways, 'arm' swings
+ * on attack and lifts on an ability, 'core' flares.
+ */
+export function makeHero(loadout: Loadout): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'hero';
+  mesh(cyl(0.28, 0.31, 0.05, 24), toon(C.stoneDark), root, 0, 0.025, 0);
+  mesh(torus(0.27, 0.018), toon(C.stone), root, 0, 0.05, 0).rotation.x = Math.PI / 2;
+  const aim = group(root, 'aim', 0, 0.05, 0);
+  const body = group(aim, 'body');
+  const cloakColor = CLOAKS[loadout.cloak].color;
+  for (const z of [-0.06, 0.06]) mesh(capsule(0.04, 0.08), toon(C.woodDark), body, 0.01, 0.07, z);
+  const cloak = group(body, 'cloak', 0, 0, 0);
+  const profile = [[0.0, 0.48], [0.09, 0.47], [0.14, 0.4], [0.16, 0.26], [0.2, 0.12], [0.23, 0.08], [0.0, 0.08]].map(([x, y]) => new THREE.Vector2(x, y)).reverse();
+  mesh(new THREE.LatheGeometry(profile, 24), toon(cloakColor), cloak);
+  mesh(torus(0.155, 0.018), toon(C.woodDark), body, 0, 0.29, 0).rotation.x = Math.PI / 2;
+  mesh(box(0.03, 0.04, 0.04), toon(C.brass), body, 0.155, 0.29, 0);
+  charm(body, loadout);
+  const head = group(body, 'head', 0.02, 0.6, 0);
+  mesh(sph(0.13, 20, 16), toon(SKIN), head);
+  for (const z of [-0.045, 0.045]) mesh(sph(0.018, 8, 6), toon('#2a1c2c'), head, 0.118, 0.015, z);
+  mesh(sph(0.022, 8, 6), toon('#e8a98a'), head, 0.13, -0.02, 0);
+  hat(head, loadout);
+  const arm = group(body, 'arm', 0.02, 0.42, 0.15);
+  mesh(capsule(0.035, 0.14), toon(cloakColor), arm, 0.03, -0.08, 0).rotation.z = -0.4;
+  const hand = group(arm, 'hand', 0.08, -0.17, 0.01);
+  mesh(sph(0.035, 10, 8), toon(SKIN), hand);
+  weapon(hand, loadout);
+  const other = mesh(capsule(0.035, 0.14), toon(cloakColor), body, 0.02, 0.34, -0.16);
+  other.rotation.x = -0.2;
   return root;
 }
 

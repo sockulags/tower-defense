@@ -1,3 +1,5 @@
+import type { Loadout, TalentId } from './data/hero';
+
 export type TowerType = 'spark' | 'frost' | 'pulse' | 'star';
 export type EnemyType = 'crawler' | 'flitter' | 'lump' | 'shimmer' | 'giant';
 export type MapId = 'mill' | 'marsh' | 'ring';
@@ -63,6 +65,29 @@ export interface Tower {
   /** Index into the locale's nickname list, revealed at level 4. */
   nick: number;
   flash: number;
+  /** Damage bonus from the Warden's Badge charm, refreshed every tick. */
+  boost: number;
+}
+
+/** Anything that deals damage and keeps a tally: a tower or the Warden. */
+export type Source = Tower | Hero;
+
+export interface Hero {
+  isHero: true;
+  /** Position in simulation pixels; the Warden is placed once and stays put. */
+  x: number; y: number;
+  level: number;
+  loadout: Loadout;
+  talents: Record<TalentId, number>;
+  cd: number;
+  abilityCd: number;
+  /** Simulation time of the last ability cast, for the view to animate. */
+  castAt: number;
+  angle: number;
+  kills: number;
+  dealt: number;
+  invested: number;
+  flash: number;
 }
 
 export interface Enemy {
@@ -74,10 +99,12 @@ export interface Enemy {
   x: number; y: number;
   slowUntil: number; slowAmt: number;
   stun: number;
-  burnUntil: number; burnDps: number; burnTw: Tower | null;
+  burnUntil: number; burnDps: number; burnSrc: Source | null;
   lastHit: number;
   seed: number;
   dead: boolean;
+  /** Developer lab only: holds the enemy in place. */
+  pinned?: boolean;
 }
 
 export interface Stats {
@@ -101,7 +128,9 @@ export interface Shot {
   tx: number; ty: number;
   speed: number;
   dmg: number;
-  tw: Tower;
+  src: Source;
+  /** Which model and colour the view should use for the projectile. */
+  look: TowerType | 'hero';
   s: Stats;
   kind: 'shot' | 'shell';
   color: string;
@@ -142,7 +171,15 @@ export interface Game {
   paused: boolean;
   over: boolean;
   selected: Tower | null;
-  build: TowerType | null;
+  build: TowerType | 'hero' | null;
+  /** The Warden once placed; null before that. */
+  hero: Hero | null;
+  heroSelected: boolean;
+  /** The kit the Warden brings to this run, taken from the save. */
+  loadout: Loadout;
+  heroTalents: Record<TalentId, number>;
+  /** Developer lab switches. */
+  dev?: { god: boolean; freeGold: boolean; allTowers: boolean };
   /** Pointer position on the board in simulation pixels. */
   hover: { x: number; y: number } | null;
   t: number;

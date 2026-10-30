@@ -38,6 +38,23 @@ Browser tower defense game, built with Vite and TypeScript. The game board is re
 - The whole UI shares one storybook style in `src/style.css` (parchment `--parch`, ink `--ink-d`, brass `--brass`, stardust `--dust`), with chunky ink outlines and drop shadows to match the cel-shaded board. There is no dark theme any more.
 - The board is always on screen. Behind the menu, `startAttract()` in `ui/play.ts` runs a silent, endless demo on Mill Hill with one of each tower; `mode` in `play.ts` keeps input and the HUD off during the demo. Map cards show real stills from `mapPortrait()` and the tower codex uses `towerPortraits()`, both cached in `three/view.ts`.
 
+## Screens
+
+- Four screens share the one board, switched through `nav` (`ui/nav.ts`, wired in `main.ts`): the menu and the Warden's Lodge float over the live demo, a run plays on the board, and the developer lab takes it over. The lab and the lodge have their own addresses, `#lab` and `#lodge`.
+- `ui/play.ts` owns the board and runs in one of three modes: `menu` (silent demo), `play` (a run, including the sandbox) and `gallery` (the lab's line-up). Other screens drive it through `startRun`, `startAttract`, `adopt` and `setFrameHook`.
+
+## The developer lab (`ui/lab.ts`)
+
+- A tool for the user while developing, linked from the menu footer and `#lab`. Keep it working whenever towers, enemies or the Warden change.
+- Gallery: every tower, every enemy and the Warden lined up on Ring Rampart, with buttons for level, branch, firing, hits, kills, statuses, the Warden's loadout and ability, a wave-strength slider and stat tables. Animations are triggered by nudging state (`cd`, `lastHit`, `castAt`), which the view picks up even while paused. "Live combat" unpauses with invulnerable, pinned dummies.
+- Sandbox: a normal run with `game.dev` switches (god mode, infinite gold, all towers), spawn buttons, fractional speed and frame stepping. A dev run never ends and never pays stardust.
+
+## The Warden (the player's hero)
+
+- One per run, placed for free from the first belt medallion (hotkey H), levelled with gold (`heroUpgradeCost`), never sold. Logic in `game/hero.ts`, data in `data/hero.ts`, model `makeHero` in `three/models.ts`.
+- The user wants a customisable hero: everyone starts with the same kit and unlocks clothes, looks and abilities over time. The loadout is the build: the weapon decides the attack and the ability the player casts (Q or the ability seal), the charm adds a passive, and hat and cloak are looks only. Items and talents are bought with stardust in the Warden's Lodge (`ui/lodge.ts`) and stored in `save.hero`.
+- Balance is untuned: in bot runs the staff and sling Warden takes a large share of kills.
+
 ## Planning
 
 - Order agreed with the user: make the core loop fun first (game feel, meaningful decisions, balance). Then add breadth (maps, towers, the build-your-own-road mode). Head-to-head comes last: local same-screen first, then against AI, then online.

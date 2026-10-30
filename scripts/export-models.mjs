@@ -29,6 +29,10 @@ try {
     models[`tower-${type}-level6-branch-b`] = m.makeTower(type, 6, 1);
   }
   for (const type of ['crawler', 'flitter', 'lump', 'shimmer', 'giant']) models[`enemy-${type}`] = m.makeEnemy(type);
+  models['warden-default'] = m.makeHero({ weapon: 'staff', charm: 'none', hat: 'hood', cloak: 'moss' });
+  models['warden-bell-wizard'] = m.makeHero({ weapon: 'bell', charm: 'badge', hat: 'wizard', cloak: 'midnight' });
+  models['warden-sling-tricorn'] = m.makeHero({ weapon: 'sling', charm: 'jar', hat: 'tricorn', cloak: 'crimson' });
+  models['warden-staff-leaves'] = m.makeHero({ weapon: 'staff', charm: 'ember', hat: 'leaves', cloak: 'saffron' });
   Object.assign(models, {
     heart: m.makeHeart(), portal: m.makePortal(), windmill: m.makeWindmill(),
     tree: m.makeTree(rnd), rock: m.makeRock(rnd), mushrooms: m.makeMushrooms(rnd),

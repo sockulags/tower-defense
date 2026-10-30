@@ -6,7 +6,7 @@ import { UPGRADES, upgradeCost } from '../data/upgrades';
 import { L, LOCALES, fmt, locale, setLocale } from '../i18n';
 import { initAudio } from '../audio';
 import { levelThreshold, mapOpen, persist, playerLevel, save, towerUnlocked } from '../save';
-import { mapPortrait, towerPortraits } from '../three/view';
+import { heroPortrait, mapPortrait, towerPortraits } from '../three/view';
 import { $ } from './dom';
 import { ICONS } from './icons';
 import { nav } from './nav';
@@ -61,6 +61,12 @@ export function renderMenu() {
   const next = TOWER_ORDER.find((t) => (TOWERS[t].unlock ?? 1) > level);
   $('mNext').textContent = s.menu.toLevel(save.total - a, b - a, level + 1)
     + (next ? ` · ${s.menu.unlocksAt(s.towers[next].name, TOWERS[next].unlock!)}` : '');
+
+  $('mLodgeLabel').textContent = s.lodge.open;
+  $<HTMLImageElement>('mLodgeFace').src = heroPortrait(save.hero.equip, 96);
+  $('mLodge').onclick = () => nav.lodge();
+  $('mLab').textContent = s.lab.open;
+  $('mLab').onclick = () => nav.lab();
 
   $('mModesTitle').textContent = s.menu.chooseEvening;
   const modes = $('modes');

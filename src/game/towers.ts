@@ -17,7 +17,7 @@ export function stats(t: Tower): Stats {
   const s: Stats = {
     range: d.range * (1 + 0.06 * lv),
     rate: d.rate * Math.pow(0.93, lv),
-    dmg: d.dmg * (1 + 0.3 * lv) * metaDamage(),
+    dmg: d.dmg * (1 + 0.3 * lv) * metaDamage() * (1 + (t.boost ?? 0)),
     splash: d.splash ?? 0,
     slow: d.slow ? Math.min(0.72, d.slow + 0.04 * lv) : 0,
     slowDur: d.slowDur ?? 0,
@@ -42,6 +42,7 @@ const EDGE = 0.42 * T;
 export function canBuild(g: Game, x: number, y: number) {
   if (x < EDGE || y < EDGE || x > COLS * T - EDGE || y > ROWS * T - EDGE) return false;
   if (distToPath(g.path, x, y) < ROAD_CLEARANCE) return false;
+  if (g.hero && Math.hypot(g.hero.x - x, g.hero.y - y) < TOWER_SPACING) return false;
   return !g.towers.some((t) => Math.hypot(t.x - x, t.y - y) < TOWER_SPACING);
 }
 
@@ -56,7 +57,7 @@ export function placeTower(g: Game, type: TowerType, x: number, y: number, anyTo
   g.gold -= d.cost;
   const t: Tower = {
     type, x, y, level: 1, branch: null, cd: 0,
-    invested: d.cost, angle: -Math.PI / 2, kills: 0, dealt: 0, nick: Math.floor(Math.random() * 1000), flash: 0,
+    invested: d.cost, angle: -Math.PI / 2, kills: 0, dealt: 0, nick: Math.floor(Math.random() * 1000), flash: 0, boost: 0,
   };
   g.towers.push(t);
   sfx.build();

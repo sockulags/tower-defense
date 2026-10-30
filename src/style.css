@@ -23,7 +23,7 @@ button { font: inherit; color: inherit; }
 .go svg, .cost svg { width: 1em; height: 1em; display: block; }
 
 /* Menu: parchment over the live board */
-#menu {
+.screen {
   position: fixed; inset: 0; z-index: 10; overflow-y: auto; overscroll-behavior: contain;
   background:
     radial-gradient(ellipse at 50% 40%, rgba(42, 28, 44, 0) 30%, rgba(42, 28, 44, .45) 100%),
@@ -37,7 +37,7 @@ button { font: inherit; color: inherit; }
 }
 .masthead { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-start; gap: 20px; }
 .title-block { display: grid; justify-items: start; gap: 14px; min-width: 0; }
-#menu h1 {
+.screen h1 {
   margin: 0; font-family: var(--display); font-weight: 800; font-size: clamp(3rem, 9vw, 6rem); line-height: .95;
   letter-spacing: .02em; color: var(--parch); -webkit-text-stroke: 4px var(--ink-d); paint-order: stroke fill;
   text-shadow: 0 6px 0 var(--ink-d);
@@ -98,6 +98,31 @@ button { font: inherit; color: inherit; }
 .cx .cost { display: inline-flex; align-items: center; gap: 4px; font-weight: 800; font-size: .85rem; margin-left: 4px; vertical-align: middle; }
 .cx .branches-line { margin-top: 2px; }
 .cx.locked img { filter: grayscale(1) brightness(.85); }
+.lodge-link { justify-content: flex-start; padding: 4px 14px 4px 4px; font-size: 1.05rem; }
+.lodge-link img { width: 42px; height: 42px; border-radius: 50%; background: radial-gradient(circle at 50% 40%, #fffaf0, #ead2a4); border: 2px solid var(--ink-d); }
+.menu-foot { display: flex; justify-content: center; }
+.menu-foot .ghost { background: rgba(248, 236, 210, .8); }
+
+/* The Warden's Lodge */
+.lodge-grid { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 820px) { .lodge-grid { grid-template-columns: minmax(0, 1fr); } }
+.mirror { position: sticky; top: 16px; padding: 16px; display: grid; justify-items: center; gap: 6px; text-align: center; }
+.mirror img { width: 100%; max-width: 280px; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle at 50% 40%, #fffaf0, #ead2a4); border: 3px solid var(--ink-d); }
+.mirror h2 { font-family: var(--display); font-size: 1.7rem; margin: 6px 0 0; }
+.lodge-slots { display: grid; gap: 18px; min-width: 0; }
+.items { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.items.small { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.item {
+  display: grid; grid-template-rows: auto 1fr auto; gap: 6px; padding: 10px; background: #fffaf0;
+  border: 2px solid var(--ink-d); border-radius: 12px; min-width: 0;
+}
+.item img { width: 96px; height: 96px; justify-self: center; opacity: 0; transition: opacity .25s; }
+.item img.ready { opacity: 1; }
+.item .txt { display: grid; gap: 4px; align-content: start; }
+.item .txt b { font-family: var(--display); font-size: 1.05rem; }
+.item.on { background: #fff1c9; box-shadow: 0 0 0 3px var(--brass); }
+.item.locked img.ready { filter: grayscale(.9) brightness(.85); }
+.item button { width: 100%; justify-content: center; }
 
 /* Game: the board fills the window and the controls sit on it like storybook props. */
 #game {
@@ -276,3 +301,58 @@ button { font: inherit; color: inherit; }
   .tcard { width: 240px; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+
+/* The Warden's medallion and ability seal */
+.medal.hero .face { background: radial-gradient(circle at 50% 40%, #fff6dc, #f0cf86); }
+.medal.hero .key { background: var(--brass-d); }
+.medal.hero.placed .price { background: var(--brass); }
+.ability {
+  position: absolute; bottom: max(24px, calc(env(safe-area-inset-bottom, 0px) + 24px)); left: calc(50% + 260px);
+  display: flex; align-items: center; gap: 8px; padding: 0; background: none; border: 0; color: var(--ink-d);
+}
+.ability .seal {
+  --cool: 0; width: 64px; height: 64px; border-radius: 50%; display: grid; place-items: center;
+  border: 3px solid var(--ink-d); box-shadow: 0 4px 0 var(--ink-d);
+  background:
+    conic-gradient(rgba(42, 28, 44, .55) calc(var(--cool) * 360deg), transparent 0),
+    radial-gradient(circle at 50% 40%, #ffe7a3, var(--brass));
+  font-family: var(--display); font-weight: 800; font-size: 1.15rem; color: var(--parch);
+  -webkit-text-stroke: 2px var(--ink-d); paint-order: stroke fill;
+}
+.ability.ready .seal { animation: glowpulse 1.4s ease-in-out infinite; }
+.ability:disabled { cursor: default; }
+.ability .lbl {
+  display: grid; line-height: 1.05; text-align: left; background: var(--parch); border: 2px solid var(--ink-d);
+  border-radius: 10px; padding: 4px 9px; box-shadow: 0 3px 0 var(--ink-d);
+}
+.ability .lbl b { font-family: var(--display); font-size: 1rem; }
+.ability .lbl small { font-size: .72rem; font-weight: 800; opacity: .6; }
+@keyframes glowpulse { 50% { box-shadow: 0 4px 0 var(--ink-d), 0 0 0 6px rgba(240, 191, 85, .45); } }
+.ability-box { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 10px; background: #fff3d6; border: 2px solid var(--ink-d); border-radius: 12px; }
+.ability-box small { font-size: .75rem; opacity: .75; }
+@media (max-width: 900px) { .ability { left: auto; right: 14px; bottom: 120px; } }
+
+/* Developer lab panel */
+.labpanel {
+  position: absolute; right: max(14px, env(safe-area-inset-right, 0px)); top: 76px; bottom: 14px; width: min(340px, calc(100% - 28px));
+  overflow-y: auto; padding: 12px 14px; display: grid; gap: 14px; align-content: start; z-index: 4; font-size: .9rem;
+}
+.labpanel section { display: grid; gap: 7px; }
+.labpanel h3 { font-family: var(--display); font-size: 1.1rem; margin: 0; }
+.labtabs { display: flex; gap: 6px; align-items: center; }
+.labtabs .ghost { margin-left: auto; padding: 4px 10px; }
+.labrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.labrow > span { font-weight: 700; margin-right: 4px; }
+.labrow .ename { min-width: 96px; }
+.labrow input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--brass-d); }
+.labgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.labgrid label { display: grid; gap: 2px; font-weight: 700; font-size: .8rem; }
+.labgrid select { font: inherit; font-weight: 500; padding: 3px 6px; border: 2px solid var(--ink-d); border-radius: 8px; background: #fffaf0; }
+.labpanel table { width: 100%; border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.labpanel th, .labpanel td { text-align: right; padding: 2px 4px; border-bottom: 1px solid rgba(42, 28, 44, .15); }
+.labpanel th:first-child, .labpanel td:first-child { text-align: left; }
+.labpanel .chip { cursor: pointer; }
+.orb.small { width: 32px; height: 32px; font-size: 1.1rem; border-width: 2px; box-shadow: 0 3px 0 var(--ink-d); }
+.labpanel.folded { bottom: auto; width: auto; }
+.labpanel.folded > :not(.labtabs) { display: none; }
+.labtabs .ghost + .orb { margin-left: 0; }

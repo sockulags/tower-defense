@@ -41,11 +41,32 @@
       <div class="tcard panel" id="card" hidden></div>
       <div class="tip panel" id="tip" hidden></div>
       <div class="belt panel" id="belt"></div>
+      <button class="ability" id="ability" hidden><span class="seal"><b id="abilityTime"></b></span><span class="lbl"><b id="abilityName"></b><small>Q</small></span></button>
     </div>
     <div class="overlay" id="ov" hidden><div class="ovbox panel" id="ovbox"></div></div>
+    <aside class="labpanel panel" id="lab" hidden></aside>
   </section>
 
-  <section id="menu">
+  <section id="lodge" class="screen" hidden>
+    <div class="menu-inner">
+      <header class="masthead">
+        <div class="title-block">
+          <h1 id="lTitle"></h1>
+          <p class="ribbon" id="lIntro"></p>
+        </div>
+        <div class="watch panel">
+          <p class="dustline"><span class="ico" id="lDustIcon"></span><b class="num" id="lDust">0</b><span id="lDustLabel"></span></p>
+          <button class="go" id="lBack"></button>
+        </div>
+      </header>
+      <div class="lodge-grid">
+        <div class="mirror panel"><img id="lPortrait" alt=""><h2 id="lName"></h2><p class="fine" id="lKit"></p></div>
+        <div class="lodge-slots" id="lSlots"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="menu" class="screen">
     <div class="menu-inner">
       <header class="masthead">
         <div class="title-block">
@@ -60,6 +81,7 @@
           <div class="bar"><i id="mBar"></i></div>
           <p class="fine" id="mNext"></p>
           <p class="dustline"><span class="ico" id="mDustIcon"></span><b class="num" id="mDust">0</b><span id="mDustLabel"></span></p>
+          <button class="go lodge-link" id="mLodge"><img id="mLodgeFace" alt=""><span id="mLodgeLabel"></span></button>
         </div>
       </header>
 
@@ -80,6 +102,7 @@
           <div class="codex" id="codex"></div>
         </section>
       </div>
+      <footer class="menu-foot"><button class="ghost" id="mLab"></button></footer>
     </div>
   </section>
   <script type="module" src="/src/main.ts"></script>

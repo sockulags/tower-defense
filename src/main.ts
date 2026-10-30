@@ -1,13 +1,22 @@
 import './style.css';
 import { initAudio } from './audio';
 import { locale, setLocale } from './i18n';
+import { hideLab, showLab } from './ui/lab';
+import { hideLodge, showLodge } from './ui/lodge';
 import { renderMenu, showMenu } from './ui/menu';
 import { nav } from './ui/nav';
 import { currentGame, currentView, frame, startAttract, startRun } from './ui/play';
 
-// The menu always sits over a live demo of the board.
-nav.menu = () => { startAttract(); showMenu(); };
-nav.play = startRun;
+// Four screens share one board: the menu and the lodge float over a live demo, a run plays on
+// it, and the lab takes it over. The lab and the lodge have their own addresses (#lab, #lodge).
+const setHash = (h: string) => {
+  try { history.replaceState(null, '', h ? `#${h}` : location.pathname + location.search); } catch { /* sandboxed */ }
+};
+
+nav.menu = () => { hideLab(); hideLodge(); startAttract(); showMenu(); setHash(''); };
+nav.play = (id) => { hideLab(); hideLodge(); startRun(id); setHash(''); };
+nav.lab = () => { hideLodge(); showLab(); setHash('lab'); };
+nav.lodge = () => { hideLab(); startAttract(); showLodge(); setHash('lodge'); };
 
 setLocale(locale());
 document.addEventListener('pointerdown', initAudio, { once: true });
@@ -21,12 +30,14 @@ function loop(ts: number) {
 }
 requestAnimationFrame(loop);
 
-startAttract();
-renderMenu();
+const start = location.hash.replace('#', '');
+if (start === 'lab') nav.lab();
+else if (start === 'lodge') nav.lodge();
+else { startAttract(); renderMenu(); }
 
 // Dev-only handle for driving the game from the browser console.
 if (import.meta.env.DEV) {
-  Promise.all([import('./game/run'), import('./game/towers')]).then(([run, towers]) => {
-    (window as unknown as Record<string, unknown>).__dw = { currentGame, currentView, startRun, ...run, ...towers };
+  Promise.all([import('./game/run'), import('./game/towers'), import('./game/hero')]).then(([run, towers, hero]) => {
+    (window as unknown as Record<string, unknown>).__dw = { currentGame, currentView, startRun, ...run, ...towers, ...hero };
   });
 }

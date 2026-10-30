@@ -9,7 +9,9 @@ import { COLS, ROWS, T } from '../config';
 import { TOWERS } from '../data/towers';
 import { canBuild, needsBranch, stats } from '../game/towers';
 import { buildPath, heartOf } from '../game/path';
-import { C, gem, glow, makeBoard, makeEnemy, makeHeart, makePortal, makeTower, tileToWorld } from './models';
+import { C, gem, glow, makeBoard, makeEnemy, makeHeart, makeHero, makePortal, makeTower, tileToWorld } from './models';
+import { BADGE_RADIUS, WEAPONS, type Loadout } from '../data/hero';
+import { heroStats } from '../game/hero';
 import type { Enemy, Fx, Game, MapDef, Path, Shot, Tower, TowerType } from '../types';
 
 const FONT = '"Alegreya Sans", sans-serif';
@@ -22,6 +24,8 @@ const MAX_POINTS = 1600;
 const ENEMY_SCALE = 1.45;
 /** Towers likewise read better a touch larger than their footprint in the simulation. */
 const TOWER_SCALE = 1.2;
+/** The Warden is small next to towers; scale it up so it reads as the hero. */
+const HERO_SCALE = 1.45;
 
 /** Simulation pixels to world units: one tile is one unit, the board is centred on the origin. */
 const wx = (x: number) => x / T - COLS / 2;
@@ -174,14 +178,8 @@ export function mapPortrait(map: MapDef, w = 480, h = 300): string {
   return url;
 }
 
-/**
- * Renders a small 3D portrait of each tower, in the game's own lighting and outline style,
- * for the build belt and tower cards. Uses a short-lived renderer of its own.
- */
-let portraitCache: Record<TowerType, string> | null = null;
-
-export function towerPortraits(size = 128, level = 2): Record<TowerType, string> {
-  if (portraitCache) return portraitCache;
+/** Renders one model to a data URL in the game's lighting and outline style, with a short-lived renderer. */
+function portrait(objs: THREE.Object3D[], size: number, centerY: number, half: number): string[] {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
@@ -191,23 +189,48 @@ export function towerPortraits(size = 128, level = 2): Record<TowerType, string>
   const sun = new THREE.DirectionalLight('#ffd7a0', 2.4);
   sun.position.set(-3, 4, 3);
   scene.add(sun);
-  const cam = new THREE.OrthographicCamera(-0.82, 0.82, 0.82, -0.82, 0.1, 20);
-  cam.position.set(2.4, 2.6, 4.2);
-  cam.lookAt(0, 0.68, 0);
-  const out = {} as Record<TowerType, string>;
-  for (const type of Object.keys(TOWERS) as TowerType[]) {
-    const obj = makeTower(type, level, null);
+  const cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, 20);
+  cam.position.set(2.4, 2.6 + centerY, 4.2);
+  cam.lookAt(0, centerY, 0);
+  const out: string[] = [];
+  for (const obj of objs) {
     addOutlines(obj);
     scene.add(obj);
     renderer.render(scene, cam);
-    out[type] = canvas.toDataURL();
+    out.push(canvas.toDataURL());
     scene.remove(obj);
     disposeTree(obj);
   }
   renderer.dispose();
   renderer.forceContextLoss();
-  portraitCache = out;
   return out;
+}
+
+let portraitCache: Record<TowerType, string> | null = null;
+
+/** Small 3D portraits of each tower for the build belt, tower cards and the codex. Cached. */
+export function towerPortraits(): Record<TowerType, string> {
+  if (portraitCache) return portraitCache;
+  const types = Object.keys(TOWERS) as TowerType[];
+  const urls = portrait(types.map((t) => makeTower(t, 2, null)), 128, 0.68, 0.82);
+  portraitCache = Object.fromEntries(types.map((t, i) => [t, urls[i]])) as Record<TowerType, string>;
+  return portraitCache;
+}
+
+const heroPortraitCache = new Map<string, string>();
+
+/** A portrait of the Warden in a given loadout. Cached per loadout. */
+export function heroPortrait(loadout: Loadout, size = 256): string {
+  const key = `${size}:${loadout.weapon}:${loadout.charm}:${loadout.hat}:${loadout.cloak}`;
+  let url = heroPortraitCache.get(key);
+  if (!url) {
+    // The Warden faces +x; turn them toward the portrait camera so the face shows.
+    const hero = makeHero(loadout);
+    hero.rotation.y = -1.05;
+    url = portrait([hero], size, 0.5, 0.62)[0];
+    heroPortraitCache.set(key, url);
+  }
+  return url;
 }
 
 // ---------- per-object view state ----------
@@ -260,6 +283,14 @@ export class GameView {
 
   private world = new THREE.Group();
   private towers = new Map<Tower, TowerView>();
+  private hero: { obj: THREE.Group; key: string; yaw: number; lastCd: number; fireAt: number; castSeen: number; castAt: number; builtAt: number } | null = null;
+  /** Gold ring around the Warden when the Badge charm is boosting nearby towers. */
+  private aura = (() => {
+    const m = new THREE.Mesh(new THREE.RingGeometry(0.96, 1, 64), new THREE.MeshBasicMaterial({ color: '#f0bf55', transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2;
+    m.visible = false;
+    return m;
+  })();
   private enemies = new Map<Enemy, EnemyView>();
   private dying: Dying[] = [];
   private shots = new Map<Shot, { mesh: THREE.Mesh; lx: number; lz: number }>();
@@ -282,7 +313,7 @@ export class GameView {
   private footprint: THREE.Mesh;
   private buildRing: THREE.Mesh;
   private selectRing: THREE.Mesh;
-  private ghost: { type: TowerType; obj: THREE.Group } | null = null;
+  private ghost: { type: TowerType | 'hero'; obj: THREE.Group } | null = null;
   private rangeGeo = new THREE.RingGeometry(0.975, 1, 72);
   private ringGeo = new THREE.RingGeometry(0.88, 1, 48);
   private boltGeo = new THREE.SphereGeometry(1, 10, 8);
@@ -342,7 +373,7 @@ export class GameView {
     this.footprint.rotation.x = -Math.PI / 2;
     this.buildRing = this.makeRangeRing();
     this.selectRing = this.makeRangeRing();
-    this.scene.add(this.footprint, this.buildRing, this.selectRing);
+    this.scene.add(this.footprint, this.buildRing, this.selectRing, this.aura);
 
     new ResizeObserver(() => this.resize()).observe(canvas);
     this.resize();
@@ -354,8 +385,22 @@ export class GameView {
    * pick the smallest frustum that contains the board. Wider or taller screens show more of the
    * scenery around it rather than empty sky.
    */
+  private focus: { x: number; y: number; halfWidth: number } | null = null;
+
+  /** Frames a part of the board instead of the whole of it (the lab gallery); null restores the normal view. */
+  setFocus(f: { x: number; y: number; halfWidth: number } | null) {
+    this.focus = f;
+    this.fitCamera();
+  }
+
   private fitCamera() {
-    fitOrtho(this.camera, this.size.w / this.size.h);
+    const aspect = this.size.w / this.size.h;
+    if (!this.focus) { fitOrtho(this.camera, aspect); return; }
+    const hw = this.focus.halfWidth, hh = hw / aspect, tx = wx(this.focus.x), tz = wz(this.focus.y);
+    Object.assign(this.camera, { left: -hw, right: hw, top: hh, bottom: -hh });
+    this.camera.position.set(tx, Math.cos(CAMERA_TILT) * 40, tz + Math.sin(CAMERA_TILT) * 40);
+    this.camera.lookAt(tx, 0, tz);
+    this.camera.updateProjectionMatrix();
   }
 
   private makeRangeRing() {
@@ -383,6 +428,7 @@ export class GameView {
 
   setGame(g: Game | null) {
     for (const v of this.towers.values()) { this.scene.remove(v.obj); disposeTree(v.obj); }
+    if (this.hero) { this.scene.remove(this.hero.obj); disposeTree(this.hero.obj); this.hero = null; }
     for (const v of this.enemies.values()) this.removeEnemy(v.obj, v.mats);
     for (const d of this.dying) this.removeEnemy(d.obj, d.mats);
     for (const s of this.shots.values()) this.scene.remove(s.mesh);
@@ -432,6 +478,7 @@ export class GameView {
     this.syncSize();
     const now = performance.now() / 1000;
     this.syncTowers(g, now);
+    this.syncHero(g, now);
     this.syncEnemies(g, now);
     this.animateDying(now);
     this.syncShots(g);
@@ -528,6 +575,58 @@ export class GameView {
       v.badge.visible = needsBranch(t);
       v.badge.position.y = 1.55 + Math.sin(now * 4) * 0.07;
       v.badge.rotation.y = now * 2;
+    }
+  }
+
+  // ---------- the Warden ----------
+
+  private syncHero(g: Game, now: number) {
+    const h = g.hero;
+    this.aura.visible = !!h && h.loadout.charm === 'badge';
+    if (!h) {
+      if (this.hero) { this.scene.remove(this.hero.obj); disposeTree(this.hero.obj); this.hero = null; }
+      return;
+    }
+    const l = h.loadout, key = `${l.weapon}:${l.charm}:${l.hat}:${l.cloak}:${h.level}`;
+    let v = this.hero;
+    if (!v || v.key !== key) {
+      const upgraded = !!v;
+      if (v) { this.scene.remove(v.obj); disposeTree(v.obj); }
+      const obj = makeHero(l);
+      // One stud per level on the post, like the towers.
+      for (let i = 0; i < h.level; i++) {
+        const stud = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 8), glow(C.gem, 1.4));
+        stud.position.set((i - (h.level - 1) / 2) * 0.06, 0.05, 0.3);
+        obj.add(stud);
+      }
+      addOutlines(obj);
+      obj.position.set(wx(h.x), 0, wz(h.y));
+      this.scene.add(obj);
+      v = { obj, key, yaw: v?.yaw ?? -h.angle, lastCd: h.cd, fireAt: -9, castSeen: h.castAt, castAt: -9, builtAt: upgraded ? now - 0.12 : now };
+      this.hero = v;
+      if (!upgraded) this.puff(wx(h.x), 0.1, wz(h.y), '#efe2c4', 16, 1.2);
+    }
+    if (h.cd > v.lastCd + 1e-4) v.fireAt = now;
+    v.lastCd = h.cd;
+    if (h.castAt !== v.castSeen) { v.castSeen = h.castAt; v.castAt = now; }
+    const fire = kick(now, v.fireAt, 0.3), cast = kick(now, v.castAt, 0.8);
+    const s = HERO_SCALE * easeOutBack(clamp01((now - v.builtAt) / 0.45)) * (1 + 0.12 * h.flash);
+    v.obj.scale.setScalar(s);
+    const diff = Math.atan2(Math.sin(-h.angle - v.yaw), Math.cos(-h.angle - v.yaw));
+    v.yaw += diff * 0.15;
+    const aim = v.obj.getObjectByName('aim');
+    if (aim) aim.rotation.y = v.yaw;
+    const body = v.obj.getObjectByName('body');
+    if (body) { body.position.y = Math.abs(Math.sin(now * 2.2)) * 0.015 + cast * 0.08; body.scale.y = 1 + Math.sin(now * 2.2) * 0.015; }
+    const cloak = v.obj.getObjectByName('cloak');
+    if (cloak) cloak.rotation.z = Math.sin(now * 1.7) * 0.04 - fire * 0.08;
+    const arm = v.obj.getObjectByName('arm');
+    // Swing forward on an attack; raise the weapon high on an ability.
+    if (arm) arm.rotation.z = -fire * 0.9 + cast * 1.6;
+    v.obj.traverse((o) => { if (o.name === 'core') o.scale.setScalar(1 + fire * 0.8 + cast * 1.4 + Math.sin(now * 6) * 0.05); });
+    if (this.aura.visible) {
+      this.aura.position.set(wx(h.x), 0.035, wz(h.y));
+      this.aura.scale.setScalar(BADGE_RADIUS * (1 + Math.sin(now * 2) * 0.01));
     }
   }
 
@@ -660,7 +759,7 @@ export class GameView {
     for (const s of g.shots) {
       seen.add(s);
       let v = this.shots.get(s);
-      const type = s.tw.type;
+      const type = s.look;
       if (!v) {
         const mesh = type === 'frost'
           ? new THREE.Mesh(this.shardGeo, gem('#d6f6ff', 1))
@@ -673,7 +772,7 @@ export class GameView {
       // Shells arc; bolts and shards fly level at lantern height.
       let y = 0.85;
       if (s.kind === 'shell') {
-        const total = Math.hypot(s.tx - s.tw.x, s.ty - s.tw.y) || 1;
+        const total = Math.hypot(s.tx - s.src.x, s.ty - s.src.y) || 1;
         const f = 1 - Math.min(1, Math.hypot(s.tx - s.x, s.ty - s.y) / total);
         y = 1.1 + Math.sin(f * Math.PI) * 1.5 - f * 0.9;
       }
@@ -764,11 +863,12 @@ export class GameView {
 
   // ---------- cursor ----------
 
-  private setGhost(type: TowerType | null) {
+  private setGhost(type: TowerType | 'hero' | null, loadout?: Loadout) {
     if (this.ghost && this.ghost.type === type) return;
     if (this.ghost) { this.scene.remove(this.ghost.obj); disposeTree(this.ghost.obj); this.ghost = null; }
     if (!type) return;
-    const obj = makeTower(type, 1, null);
+    const obj = type === 'hero' ? makeHero(loadout!) : makeTower(type, 1, null);
+    if (type === 'hero') obj.scale.setScalar(HERO_SCALE);
     obj.traverse((o) => {
       const m = o as THREE.Mesh;
       if (m.isMesh) {
@@ -786,16 +886,18 @@ export class GameView {
 
   private updateCursor(g: Game) {
     const hover = g.build ? g.hover : null;
-    this.setGhost(hover ? g.build : null);
+    this.setGhost(hover ? g.build : null, g.loadout);
     if (hover && g.build) {
-      const ok = canBuild(g, hover.x, hover.y) && g.gold >= TOWERS[g.build].cost;
+      const isHero = g.build === 'hero';
+      const ok = canBuild(g, hover.x, hover.y) && (isHero ? !g.hero : g.gold >= TOWERS[g.build as TowerType].cost);
+      const range = isHero ? WEAPONS[g.loadout.weapon].range * (1 + 0.08 * g.heroTalents.reach) : TOWERS[g.build as TowerType].range;
       const x = wx(hover.x), z = wz(hover.y);
       this.footprint.visible = true;
       this.footprint.position.set(x, 0.03, z);
       (this.footprint.material as THREE.MeshBasicMaterial).color.set(ok ? '#ffffff' : '#ff4f5e');
       this.buildRing.visible = true;
       this.buildRing.position.set(x, 0.03, z);
-      this.buildRing.scale.setScalar(TOWERS[g.build].range);
+      this.buildRing.scale.setScalar(range);
       (this.buildRing.material as THREE.MeshBasicMaterial).color.set(ok ? '#ffffff' : '#ff4f5e');
       this.ghost!.obj.position.set(x, 0, z);
       this.ghost!.obj.visible = ok;
@@ -808,6 +910,11 @@ export class GameView {
       this.selectRing.position.set(wx(g.selected.x), 0.03, wz(g.selected.y));
       this.selectRing.scale.setScalar(stats(g.selected).range);
       (this.selectRing.material as THREE.MeshBasicMaterial).color.set('#fff6dc');
+    } else if (g.heroSelected && g.hero) {
+      this.selectRing.visible = true;
+      this.selectRing.position.set(wx(g.hero.x), 0.03, wz(g.hero.y));
+      this.selectRing.scale.setScalar(heroStats(g.hero).range);
+      (this.selectRing.material as THREE.MeshBasicMaterial).color.set('#ffe7a8');
     } else this.selectRing.visible = false;
   }
 
