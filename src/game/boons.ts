@@ -24,7 +24,8 @@ export const newBoonState = (): BoonState => ({ taken: [], offer: null, mods: ne
 
 /** Boons the run could still be offered: not taken yet, and tower boons only for towers the player can build. */
 export function boonPool(g: Game): BoonId[] {
-  const usable = (t: TowerType) => g.boons.anyTower || !!g.dev?.allTowers || towerUnlocked(t) || g.towers.some((x) => x.type === t);
+  // The squad: a tower left at home gets no boons this run.
+  const usable = (t: TowerType) => g.boons.anyTower || !!g.dev?.allTowers || (towerUnlocked(t) && (!g.squad || g.squad.includes(t))) || g.towers.some((x) => x.type === t);
   return BOON_ORDER.filter((id) => !g.boons.taken.includes(id) && (!BOONS[id].tower || usable(BOONS[id].tower!)));
 }
 

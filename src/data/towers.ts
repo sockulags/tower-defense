@@ -19,6 +19,15 @@ export const TOWERS: Record<TowerType, TowerDef> = {
   star: { cost: 140, range: 3.4, rate: 2.4, dmg: 38, color: '#c7a6ff', kind: 'shell', speed: 7, splash: 1.2, unlock: 3,
     attrs: { air: false, ground: true, bonus: { armoured: 0.5, splits: 0.25 } },
     branchAttrs: [{ bonus: { armoured: 1, splits: 0.25 } }, null] },
+  // ---------- the fifth tower: Skyhook ----------
+  // A harpoon ballista with a kite on a line, built to answer flyers, which Ember and Starfall
+  // cannot touch and Spark and Rime only nibble at. Long reach and heavy single harpoons, double
+  // damage against flyers. Kite Flock (A) gives up the ground for three harpoons at once against
+  // flyers; Whaler (B) throws one huge harpoon that also punches through a Brute's armour.
+  kite: { cost: 90, range: 3.2, rate: 1.2, dmg: 22, color: '#7fe6c9', kind: 'shot', speed: 18, unlock: 5,
+    attrs: { air: true, ground: true, bonus: { flying: 1 } },
+    branchAttrs: [{ ground: false, bonus: { flying: 1.5 } }, { bonus: { flying: 1, armoured: 0.75 } }] },
+  // ---------- end the fifth tower ----------
 };
 
-export const TOWER_ORDER: TowerType[] = ['spark', 'frost', 'pulse', 'star'];
+export const TOWER_ORDER: TowerType[] = ['spark', 'frost', 'pulse', 'star', 'kite'];

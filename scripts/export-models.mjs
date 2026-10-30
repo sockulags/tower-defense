@@ -23,7 +23,7 @@ try {
 
   const rnd = () => Math.random();
   const models = {};
-  for (const type of ['spark', 'frost', 'pulse', 'star']) {
+  for (const type of ['spark', 'frost', 'pulse', 'star', 'kite']) {
     models[`tower-${type}`] = m.makeTower(type, 1, null);
     models[`tower-${type}-level6-branch-a`] = m.makeTower(type, 6, 0);
     models[`tower-${type}-level6-branch-b`] = m.makeTower(type, 6, 1);
@@ -34,6 +34,8 @@ try {
   models['warden-bell-wizard'] = m.makeHero({ weapon: 'bell', charm: 'badge', hat: 'wizard', cloak: 'midnight' });
   models['warden-sling-tricorn'] = m.makeHero({ weapon: 'sling', charm: 'jar', hat: 'tricorn', cloak: 'crimson' });
   models['warden-staff-leaves'] = m.makeHero({ weapon: 'staff', charm: 'ember', hat: 'leaves', cloak: 'saffron' });
+  // Economy buildings (lab experiment): the mill at each stage.
+  for (const stage of [1, 2, 3]) models[`mill-stage${stage}`] = m.makeMill(stage);
   Object.assign(models, {
     heart: m.makeHeart(), portal: m.makePortal(), windmill: m.makeWindmill(),
     tree: m.makeTree(rnd), rock: m.makeRock(rnd), mushrooms: m.makeMushrooms(rnd),

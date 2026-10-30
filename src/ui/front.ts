@@ -12,6 +12,8 @@ import { $ } from './dom';
 import { FRONT_ICONS } from './front-icons';
 import { nav } from './nav';
 import { openProfiles, openSettings } from './settings';
+// The squad and the map's shadows on a storybook page.
+import { storyStripHtml, wireStoryStrip } from './squad';
 import type { MapId } from '../types';
 
 export const STORY_MAPS: MapId[] = MAP_ORDER.filter((id) => !MAPS[id].survival);
@@ -139,8 +141,11 @@ function renderStory(root: HTMLElement, id: MapId) {
     ? `<span class="eyebrow">${f.pageOf(i + 1, STORY_MAPS.length)}</span>
        <h2>${s.maps[id].name}</h2>
        <p class="story-line">${pages[id] ?? ''}</p>
-       <p class="result${save.won[id] ? ' won-line' : ''}">${result}</p>
-       <button class="go begin" id="fBegin">${f.begin}</button>`
+       ${storyStripHtml(MAPS[id]) /* the squad: the map's shadows and the four towers to bring */}
+       <div class="begin-row">
+         <button class="go begin" id="fBegin">${f.begin}</button>
+         <p class="result${save.won[id] ? ' won-line' : ''}">${result}</p>
+       </div>`
     : `<div class="pencil" aria-hidden="true"><i></i><i></i><i></i><i></i></div>`;
   root.innerHTML = `
     <div class="fbar">${backButton(survivalOpen() ? 'play' : '')}</div>
@@ -156,6 +161,7 @@ function renderStory(root: HTMLElement, id: MapId) {
   $('fPrev').onclick = () => flip(prev);
   $('fNext').onclick = () => flip(next);
   if (reached) $('fBegin').onclick = () => nav.play(id);
+  if (reached) wireStoryStrip(root, MAPS[id]); // the squad
   // Swipe sideways to turn the page on touch screens.
   const spread = $('fSpread');
   let startX = 0, startY = 0, tracking = false;

@@ -114,6 +114,8 @@ button { font: inherit; color: inherit; }
 .story-line { font-size: 1.3rem; font-weight: 500; line-height: 1.4; }
 .result { font-weight: 700; opacity: .7; }
 .result.won-line { opacity: 1; justify-self: start; background: #bfe3a8; border: 2px solid var(--ink-d); border-radius: 99px; padding: 1px 12px; }
+.begin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.begin-row .result { margin: 0; }
 .begin { justify-self: start; font-family: var(--display); font-size: 1.4rem; padding: 8px 34px; margin-top: 6px; cursor: pointer; }
 .page-edge {
   width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; padding: 0; font-size: 1.3rem; cursor: pointer;
@@ -687,6 +689,13 @@ kbd {
 }
 /* ---------- end shadow traits ---------- */
 
+/* ---------- rifts that move: which rift the next wave comes from (src/ui/traits.ts) ---------- */
+.wp-rift {
+  margin: 0; padding: 3px 10px; font-size: .82rem; font-weight: 800; line-height: 1.3;
+  background: var(--parch); border: 2.5px solid var(--ink-d); border-radius: 999px; box-shadow: 0 3px 0 var(--ink-d);
+}
+/* ---------- end rifts that move ---------- */
+
 /* ---------- bosses: arrival banner and health bars (src/ui/boss.ts) ---------- */
 .play-hud > .boss-ui { position: absolute; inset: 0; pointer-events: none; }
 .boss-ui * { pointer-events: none; }
@@ -936,3 +945,60 @@ kbd {
   .ovbox .btnrow .go, .ovbox .btnrow .ghost { min-height: 38px; }
 }
 /* ---------- end HUD layout ---------- */
+
+/* ---------- the squad: the Lodge's Squad tab and the storybook page's strip ---------- */
+.squad-slots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.squad-slot {
+  position: relative; display: grid; justify-items: center; gap: 2px; padding: 8px 4px 6px; min-height: 44px; cursor: pointer; color: var(--ink-d);
+  font: inherit; background: #fffaf0; border: 3px solid var(--ink-d); border-radius: 14px; box-shadow: 0 3px 0 var(--ink-d);
+}
+.squad-slot img { width: 72px; height: 72px; max-width: 100%; opacity: 0; transition: opacity .25s; }
+.squad-slot img.ready, .squad-tower img.ready, .ss-tower img.ready, .ss-shadow img.ready { opacity: 1; }
+.squad-slot b { font-family: var(--display); font-size: .95rem; line-height: 1.1; text-align: center; }
+.squad-slot .key { position: absolute; top: 4px; left: 8px; font-weight: 800; font-size: .8rem; opacity: .6; }
+.squad-slot.on { background: var(--brass); transform: translateY(-2px); }
+.squad-slot:hover:not(.on) { background: #fff1c9; }
+.squad-towers { display: grid; gap: 10px; }
+.squad-tower {
+  display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 8px 12px;
+  background: #fffaf0; border: 2px solid var(--ink-d); border-radius: 12px;
+}
+.squad-tower img { width: 64px; height: 64px; opacity: 0; transition: opacity .25s; }
+.squad-tower .txt { display: grid; gap: 2px; min-width: 0; }
+.squad-tower .txt b { font-family: var(--display); font-size: 1.05rem; }
+.squad-tower.on { background: #fff1c9; }
+.squad-tower .ghost { min-height: 40px; padding: 6px 12px; }
+@media (max-width: 520px) {
+  .squad-slot img { width: 52px; height: 52px; }
+  .squad-tower { grid-template-columns: 48px minmax(0, 1fr); }
+  .squad-tower img { width: 48px; height: 48px; }
+  .squad-tower button { grid-column: 1 / -1; justify-self: end; }
+}
+
+.story-strip { display: grid; gap: 8px; }
+.ss-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.ss-shadow { position: relative; display: inline-block; width: 40px; height: 40px; border-radius: 50%; background: radial-gradient(circle at 50% 40%, #fffaf0, #ead2a4); border: 2px solid var(--ink-d); }
+.ss-shadow img { width: 100%; height: 100%; border-radius: 50%; display: block; opacity: 0; transition: opacity .25s; }
+.ss-traits { position: absolute; right: -6px; bottom: -6px; display: flex; }
+.ss-traits svg { width: 16px; height: 16px; display: block; }
+.ss-tower {
+  width: 48px; height: 48px; padding: 0; border-radius: 50%; color: var(--ink-d);
+  background: radial-gradient(circle at 50% 40%, #fffaf0, #ead2a4); border: 2px solid var(--ink-d); box-shadow: 0 2px 0 var(--ink-d);
+}
+.ss-tower:disabled { cursor: default; opacity: 1; }
+.ss-tower:not(:disabled) { cursor: pointer; }
+.changing .ss-tower:not(:disabled):hover, .ss-tower.bench.on { background: var(--brass); }
+.ss-tower img { width: 100%; height: 100%; border-radius: 50%; display: block; opacity: 0; transition: opacity .25s; }
+.ss-change { min-height: 44px; padding: 4px 16px; margin-left: 4px; cursor: pointer; }
+.ss-bench { display: grid; gap: 4px; padding: 6px 10px; border: 2px dashed var(--ink-d); border-radius: 12px; background: rgba(255, 250, 240, .7); }
+.ss-bench .fine { margin: 0; }
+/* Phones held sideways: smaller chips so Begin stays on screen. */
+@media (max-height: 500px) {
+  .story-strip { gap: 4px; }
+  .ss-row { gap: 4px; }
+  .ss-shadow { width: 30px; height: 30px; }
+  .ss-traits svg { width: 13px; height: 13px; }
+  .ss-tower { width: 36px; height: 36px; }
+  .ss-change { min-height: 36px; padding: 2px 12px; }
+}
+/* ---------- end the squad ---------- */

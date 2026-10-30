@@ -6,6 +6,7 @@ import type { RunResult } from '../meta';
 import { DEFAULT_NAME, activeProfile, persist, renameProfile, save } from '../save';
 import { STORY_MAPS } from './front';
 import { nav } from './nav';
+import { SQUAD_SIZE, squadOpen, unlockedTowers } from '../game/squad'; // the squad
 import type { Game, MapId } from '../types';
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
@@ -18,6 +19,8 @@ export function renderEnd(box: HTMLElement, g: Game, r: RunResult, gaveUp: boole
   h += `<p class="dust">${s.end.dust(r.dust)}</p>`;
   if (r.levelAfter > r.levelBefore) h += `<p class="good"><b>${s.end.newLevel(r.levelAfter)}</b></p>`;
   for (const t of r.newTowers) h += `<p class="good">${s.end.newTower(s.towers[t].name)}</p>`;
+  // The squad: this run's new tower opened the squad.
+  if (r.newTowers.length && squadOpen() && unlockedTowers().length - r.newTowers.length <= SQUAD_SIZE) h += `<p class="good"><b>${s.squad.unlocked}</b></p>`;
   for (const id of r.newMaps) h += `<p class="good">${f.end.newPage(s.maps[id].name)}</p>`;
   if (r.newSurvival) h += `<p class="good"><b>${f.end.newSurvival}</b></p>`;
 

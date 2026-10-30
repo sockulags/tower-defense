@@ -6,6 +6,7 @@ import { JAR_GOLD } from '../data/hero';
 import { heroReach } from './hero';
 import { canHit, stats, towerAttrs, traitBonus } from './towers';
 import { findCombo, noteTowerStatus, recordCombo } from './combos';
+import { WATER_THUNDER, inWater, lineBlocked } from './terrain'; // terrain that matters
 import type { Enemy, Game, Shot, Source, Stats, Tower, TowerAttrs } from '../types';
 
 /** Smallest share of a hit that gets through armour. */
@@ -92,13 +93,17 @@ export function updateTower(g: Game, t: Tower, dt: number) {
   if (t.cd > 0) return;
   const s = stats(t), r = s.range * T, d = TOWERS[t.type];
   // Target whoever is furthest along the road, among the shadows this tower can hit.
-  const targets = inRange(g, t.x, t.y, r, s.attrs).sort((a, b) => b.d - a.d);
+  // Terrain: trees block straight shots; Starfall's shells arc over and pulses spread through.
+  const straight = d.kind === 'shot' && !s.area;
+  const targets = inRange(g, t.x, t.y, r, s.attrs).filter((e) => !straight || !lineBlocked(g.map, t.x, t.y, e.x, e.y)).sort((a, b) => b.d - a.d);
   if (!targets.length) return;
   t.cd = s.rate;
 
   if (d.kind === 'pulse' || s.area) {
+    // Terrain: Thunder Pulse hits harder on shadows standing in water.
+    const thunder = t.type === 'pulse' && t.branch === 1;
     for (const e of targets) {
-      damage(g, e, s.dmg, t);
+      damage(g, e, thunder && inWater(g.map, e.x, e.y) ? s.dmg * (1 + WATER_THUNDER) : s.dmg, t);
       if (s.burn) { e.burnUntil = g.t + 3; e.burnDps = Math.max(e.burnDps, s.burn); e.burnSrc = t; }
       const was = { stun: e.stun, slowUntil: e.slowUntil }; // combos
       if (s.stun && Math.random() < s.stun) e.stun = g.t + 0.6;

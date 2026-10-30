@@ -84,6 +84,10 @@ export const en = {
     mill: { name: 'Mill Hill', blurb: 'A long winding road past the old mill. A good first evening.' },
     marsh: { name: 'Marsh Ditch', blurb: 'A shorter road and tougher shadows. Unlocks when you clear Mill Hill.' },
     ring: { name: 'Ring Rampart', blurb: 'Survival. The spiral leads in toward the heart and the waves never end.' },
+    // terrain and rifts that move
+    ford: { name: 'Willow Ford', blurb: 'The road wades a river twice. Water slows shadows and hills reach further. Unlocks when you clear Marsh Ditch.' },
+    bramble: { name: 'Bramble Wood', blurb: 'Trees block straight shots; Starfall arcs over them. Unlocks when you clear Willow Ford.' },
+    fork: { name: 'The Forked Road', blurb: 'Three rifts take turns sending the waves. Unlocks when you clear Bramble Wood.' },
   },
 
   towers: {
@@ -102,6 +106,11 @@ export const en = {
     star: { name: 'Starfall', desc: 'A slow impact that damages a whole cluster.', branches: [
       { name: 'Meteor', desc: 'Bigger and heavier impacts.' },
       { name: 'Shrapnel', desc: 'The impact sends five shards to nearby enemies.' },
+    ] },
+    // the fifth tower
+    kite: { name: 'Skyhook', desc: 'Long-range harpoons that hit flyers twice as hard.', branches: [
+      { name: 'Kite Flock', desc: 'Harpoons three flyers at once, hard. Can no longer hit the ground.' },
+      { name: 'Whaler', desc: 'One huge, slower harpoon with longer reach that punches through armour.' },
     ] },
   },
 
@@ -241,6 +250,10 @@ export const en = {
     pages: {
       mill: 'The sun is setting on the mill. Light the lanterns before the shadows come.',
       marsh: 'The Gloom has found the marsh road. Hold it until morning.',
+      // terrain and rifts that move
+      ford: 'The willows lean over the ford, and the shadows hate getting their feet wet.',
+      bramble: 'The road runs into the bramble wood, where the lanterns cannot see far.',
+      fork: 'Three rifts have opened around the crossroads, and they take turns.',
     },
     resultWon: 'Dawn came here.',
     resultTried: (n: number) => `Last time you held until wave ${n}.`,
@@ -418,6 +431,56 @@ export const en = {
     version: (v: string) => `Version ${v}`,
   },
   // --- end installable app ---
+
+  // ---------- the squad (src/game/squad.ts, the Lodge's Squad tab, the storybook page) ----------
+  squad: {
+    tab: 'Squad',
+    title: 'Your squad',
+    intro: 'Every run brings four towers. Choose the four that answer the shadows ahead.',
+    pickSlot: 'Tap a slot, then the tower to bring in its place.',
+    slot: (n: number, tower: string) => `Slot ${n}: ${tower}`,
+    inSquad: 'In the squad',
+    bring: 'Bring',
+    bringFor: (tower: string, out: string) => `Bring ${tower} instead of ${out}`,
+    change: 'Change',
+    done: 'Done',
+    swapHint: (tower: string) => `Tap a tower to swap it for ${tower}.`,
+    swapFor: (out: string, tower: string) => `Swap ${out} for ${tower}`,
+    shadows: 'Shadows tonight',
+    unlocked: 'Squad unlocked: choose your four towers in the Lodge.',
+  },
+  // ---------- end the squad ----------
+
+  // ---------- terrain and rifts that move ----------
+  terrain: {
+    /** Placement hint for a spot on a hill. */
+    hill: (pct: number) => `On a hill: reaches ${pct}% further`,
+    /** Placement hint for a straight-shooting tower with woods in reach. */
+    woods: 'Trees block its shots',
+    /** Placement hint for Starfall with woods in reach. */
+    arcs: 'Arcs over the trees',
+    /** Next-wave preview: which rift the wave comes from. */
+    rift: { north: 'From the north rift', south: 'From the south rift', east: 'From the east rift', west: 'From the west rift' },
+  },
+  // ---------- end terrain and rifts that move ----------
+
+  // ---------- economy buildings: the mill (lab experiment) ----------
+  mills: {
+    name: 'Mill',
+    /** The name as it reads inside the shared placement hints ("Place the mill on the grass"). */
+    inHint: 'mill',
+    desc: 'Grinds a little gold after every wave it stands through, and pays more as it grows. It never fights.',
+    stage: (n: number) => `Stage ${n} of 3`,
+    pays: (gold: number) => `Pays ${gold} gold after each wave`,
+    grows: (waves: number) => (waves === 1 ? 'Grows after the next wave' : `Grows in ${waves} waves`),
+    grown: 'Fully grown',
+    paid: (gold: number) => `Paid ${gold} gold so far`,
+    limit: (n: number) => `At most ${n} mills per run`,
+    full: 'No more mills this run',
+    /** Lab sandbox switch. */
+    lab: 'Mills (experiment)',
+  },
+  // ---------- end economy buildings ----------
 };
 
 export type Strings = typeof en;

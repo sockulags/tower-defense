@@ -142,6 +142,12 @@ const towerVoice: Record<TowerType, () => void> = {
     if (!gate('star', 120)) return;
     tone(jitter(1500, 0.06), 0.55, 'sine', 0.011, -700, 0, 0.06);
   },
+  // Skyhook (the fifth tower): the twang of a ballista string and the zip of the line paying out.
+  kite() {
+    if (!gate('kite', 90)) return;
+    tone(jitter(180, 0.05), 0.12, 'triangle', 0.03, -60, 0, 0.004);
+    noise(0.16, 0.035, 'bandpass', jitter(2600, 0.1), { q: 3, at: 0.01, sweep: [[0.16, 900]] });
+  },
 };
 
 const weaponVoice: Record<WeaponId, () => void> = {

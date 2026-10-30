@@ -11,14 +11,17 @@ import { floatText, updateFx } from './fx';
 import { buildPath, heartOf, posAt } from './path';
 import { hpMultiplier, makeWave } from './waves';
 import { roadDirection, updateBosses, waveBoss } from './bosses'; // bosses
+import { millsWaveCleared } from './mills'; // economy buildings (lab experiment)
+import { WATER_SLOW, inWater, roadOf, roadsOf, waveRift } from './terrain'; // terrain and rifts that move
 import type { Enemy, EnemyType, Game, Hooks, MapId } from '../types';
 
 export function createGame(mapId: MapId, hooks: Hooks): Game {
   const map = MAPS[mapId];
-  const path = buildPath(map);
+  const paths = roadsOf(map).map((pts) => buildPath(map, pts)); // rifts that move: one road per rift
+  const path = paths[0];
   const lives = 20 + 3 * save.up.lives;
   return {
-    map, path,
+    map, path, paths, rift: waveRift(map, 1),
     gold: 160 + 30 * save.up.gold, lives, maxLives: lives,
     wave: 0, cleared: 0, towers: [], enemies: [], shots: [], fx: [], queue: [],
     spawnT: 0, active: false, auto: false, autoT: 0, speed: 1, paused: false, over: false,
@@ -33,22 +36,27 @@ export function startWave(g: Game) {
   g.wave++;
   g.active = true;
   g.queue = makeWave(g.map, g.wave);
+  g.rift = waveRift(g.map, g.wave); // rifts that move: this wave's rift
   g.spawnT = 0.3;
   sfx.wave();
   const boss = waveBoss(g.map, g.wave); // bosses: the wave call names its boss
   floatText(g, W / 2, 40, boss ? L().bosses.wave(g.wave, L().enemies[boss]) : L().fx.wave(g.wave), '#ffb547', 1.8, 22);
 }
 
-/** Adds an enemy at the road's start, or `d` pixels along it, scaled for the current wave. */
-export function spawnEnemy(g: Game, type: EnemyType, d = 0): Enemy {
+/**
+ * Adds an enemy at the road's start, or `d` pixels along it, scaled for the current wave. On a map
+ * with several rifts it walks the current wave's road unless `road` says otherwise.
+ */
+export function spawnEnemy(g: Game, type: EnemyType, d = 0, road = g.rift): Enemy {
   const def = ENEMIES[type];
   const hp = def.hp * hpMultiplier(g.map, Math.max(1, g.wave));
-  const p = posAt(g.path, d);
+  const p = posAt(g.paths[road] ?? g.path, d);
   const e: Enemy = {
     type, def, hp, maxHp: hp, reward: boonReward(g, def.reward * (1 + 0.02 * g.wave)), d, x: p.x, y: p.y,
     slowUntil: 0, slowAmt: 0, stun: 0, burnUntil: 0, burnDps: 0, burnSrc: null, lastHit: -9,
     seed: Math.random() * 6.28, dead: false,
     armour: boonArmour(g, (def.armour ?? 0) * (1 + 0.02 * (Math.max(1, g.wave) - 1))), dashing: false, mending: !!def.regen,
+    road: road || undefined, // rifts that move
   };
   g.enemies.push(e);
   return e;
@@ -87,17 +95,19 @@ export function update(g: Game, dt: number) {
     let sp = e.pinned ? 0 : e.def.speed * (e.dashing ? sprint!.mult : 1);
     if (frozen) sp = 0;
     else if (chilled) sp *= 1 - e.slowAmt;
+    if (sp && !e.def.traits.includes('flying') && inWater(g.map, e.x, e.y)) sp *= WATER_SLOW; // terrain: wading
     e.d += sp * T * dt * roadDirection(e); // bosses: a Thief with its loot runs back
-    if (e.d >= g.path.len) {
+    const road = roadOf(g, e); // rifts that move
+    if (e.d >= road.len) {
       e.dead = true;
       if (!g.dev?.god) g.lives -= e.def.leak;
       g.shake = 0.35;
       sfx.leak();
-      const heart = heartOf(g.path);
+      const heart = heartOf(road);
       floatText(g, heart.x, heart.y - 30, L().fx.lifeLost(e.def.leak), '#ff5f6d', 1.2, 16);
       continue;
     }
-    const p = posAt(g.path, e.d);
+    const p = posAt(road, e.d);
     e.x = p.x; e.y = p.y;
   }
 
@@ -117,7 +127,7 @@ export function update(g: Game, dt: number) {
   g.enemies = g.enemies.filter((e) => !e.dead);
   for (const e of splits) {
     const { type, count } = e.def.split!;
-    for (let i = 0; i < count; i++) spawnEnemy(g, type, Math.max(0, e.d + (i - (count - 1) / 2) * T * 0.3));
+    for (let i = 0; i < count; i++) spawnEnemy(g, type, Math.max(0, e.d + (i - (count - 1) / 2) * T * 0.3), e.road ?? 0);
   }
   updateFx(g, dt);
 
@@ -131,6 +141,7 @@ export function update(g: Game, dt: number) {
     floatText(g, W / 2, 40, L().fx.waveCleared(g.wave, bonus), '#7fc28a', 1.6, 20);
     if (g.wave >= g.map.waves) { finish(g, true); return; }
     boonWaveCleared(g); // boons between waves: extra gold, and every fifth wave a choice
+    millsWaveCleared(g); // economy buildings: every mill pays and grows (lab experiment)
     g.autoT = 1.5;
   }
   if (!g.active && g.auto && !g.over) {

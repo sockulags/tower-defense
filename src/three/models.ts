@@ -23,6 +23,8 @@ export const C = {
   // ground
   grassA: '#62a352', grassB: '#80bd5f', grassEdge: '#4f8d4a', dirt: '#e3c58f', dirtB: '#d2ad73',
   cliff: '#a8734d', cliffDeep: '#6b4632', blight: '#6a4f8a', blightDeep: '#4a3566',
+  // terrain that matters: sunlit hilltops, forest floor, river water and its muddy banks
+  hillTop: '#9fd06a', forestFloor: '#3f7a45', water: '#5db6d8', riverBank: '#8f9a5a',
   leafA: '#4a9c58', leafB: '#7bbb5a', leafDark: '#357a4c', bark: '#7a5135', deadwood: '#4e3f57',
   // lights
   lamp: '#ffc35a', gem: '#ffd27a', flame: '#ffb347', flameCore: '#fff1b8', violet: '#9b6bff',
@@ -648,7 +650,199 @@ const starTower: TowerBuilder = (root, level, branch, color) => {
   }
 };
 
-const TOWER_BUILDERS: Record<TowerType, TowerBuilder> = { spark: sparkTower, frost: frostTower, pulse: pulseTower, star: starTower };
+// ---------- Skyhook (the fifth tower): a harpoon ballista with kites on a line ----------
+
+/** Kite cloth: cel-shaded and visible from both sides. */
+const sail = (color: string) => cached(`sail:${color}`, () =>
+  new THREE.MeshToonMaterial({ color, gradientMap: TOON_STEPS, side: THREE.DoubleSide }));
+
+/** A diamond kite with crossed spars and a tail of bows, nose along +x, lying almost flat so it reads from above. */
+function kiteSail(parent: THREE.Object3D, color: string, s = 1) {
+  const k = group(parent, '');
+  k.scale.setScalar(s);
+  const tilt = group(k, '');
+  tilt.rotation.x = -Math.PI / 2 + 0.45;
+  const shape = new THREE.Shape([new THREE.Vector2(0.17, 0), new THREE.Vector2(0, 0.1), new THREE.Vector2(-0.11, 0), new THREE.Vector2(0, -0.1)]);
+  const cloth = mesh(new THREE.ShapeGeometry(shape), sail(color), tilt);
+  cloth.userData.noOutline = true;
+  mesh(box(0.28, 0.012, 0.012), toon(C.woodDark), tilt, 0.03, 0, 0.004);
+  mesh(box(0.012, 0.2, 0.012), toon(C.woodDark), tilt, 0, 0, 0.004);
+  // The tail: little cloth bows trailing behind and below.
+  for (let i = 0; i < 3; i++) {
+    const bow = mesh(cone(0.022, 0.05, 3), toon(i % 2 ? C.lamp : C.cloth), k, -0.15 - i * 0.07, -0.03 - i * 0.025, 0);
+    bow.rotation.z = Math.PI / 2;
+  }
+  return k;
+}
+
+/**
+ * Kites circling the tower on lines from `from` (the line's anchor height). Grouped as 'orbit',
+ * which the view turns, so the kites sail round and round overhead.
+ */
+function kiteFlight(parent: THREE.Object3D, from: number, kites: { r: number; h: number; color: string; s?: number; a?: number }[]) {
+  const orbit = group(parent, 'orbit');
+  for (const k of kites) {
+    const arm = group(orbit, '');
+    arm.rotation.y = k.a ?? 0;
+    const sailG = kiteSail(arm, k.color, k.s ?? 1);
+    sailG.position.set(k.r, k.h, 0);
+    sailG.rotation.y = Math.PI / 2; // nose along the way the orbit turns
+    // The line, a thin cord from the anchor to the kite.
+    const dx = k.r, dy = k.h - from, len = Math.hypot(dx, dy);
+    const line = mesh(cyl(0.004, 0.004, len, 4), toon(C.bone), arm, dx / 2, from + dy / 2, 0);
+    line.rotation.z = Math.atan2(-dx, dy);
+    line.userData.noOutline = true;
+  }
+  return orbit;
+}
+
+/**
+ * The Skyhook's weapon: a ballista that turns ('aim') and kicks back ('recoil'), with a brass bow,
+ * a taut string and a harpoon with a faintly glowing barb. Harpoons leave from each 'muzzle'.
+ */
+function ballista(parent: THREE.Object3D, y: number, color: string, size = 1, barrels = 1) {
+  const aim = group(parent, 'aim', 0, y, 0);
+  mesh(cyl(0.07 * size, 0.08 * size, 0.05, 12), toon(C.woodDark), aim, 0, 0, 0);
+  mesh(box(0.06, 0.08 * size, 0.06), toon(C.wood), aim, 0, 0.05 * size, 0);
+  const recoil = group(aim, 'recoil', 0, 0.1 * size, 0);
+  const A = Math.PI * 0.62, R = 0.15 * size;
+  for (let b = 0; b < barrels; b++) {
+    const z = (b - (barrels - 1) / 2) * 0.11 * size;
+    const r = barrels > 1 ? 0.75 : 1;
+    // Stock and rail.
+    mesh(box(0.34 * size * r, 0.045 * size, 0.06 * size * r), toon(C.wood), recoil, 0.04 * size, 0, z);
+    mesh(box(0.3 * size * r, 0.012, 0.016), toon(C.brassDark), recoil, 0.06 * size, 0.028 * size, z);
+    // The bow, convex toward the target, and its string.
+    const xc = 0.16 * size * r - R * r;
+    const bow = mesh(torus(R * r, 0.014 * size, A, 16), toon(C.brass), recoil, xc, 0.02 * size, z);
+    bow.rotation.set(Math.PI / 2, 0, -A / 2);
+    const back = xc + R * r * Math.cos(A / 2), span = 2 * R * r * Math.sin(A / 2);
+    mesh(box(0.006, 0.006, span), toon(C.bone), recoil, back, 0.02 * size, z).userData.noOutline = true;
+    // The harpoon: a shaft, a barbed head that glows a little, and a rope trailing back.
+    const tip = 0.26 * size * r;
+    mesh(cyl(0.011 * size, 0.011 * size, 0.34 * size * r, 6), toon(C.woodDark), recoil, tip - 0.17 * size * r, 0.045 * size, z).rotation.z = Math.PI / 2;
+    mesh(cone(0.03 * size * r, 0.09 * size * r, 6), gem(color, 0.55), recoil, tip + 0.04 * size * r, 0.045 * size, z).rotation.z = -Math.PI / 2;
+    for (const sd of [-1, 1]) {
+      const barb = mesh(cone(0.01 * size, 0.05 * size * r, 4), toon(C.iron), recoil, tip, 0.045 * size, z + sd * 0.025 * size * r);
+      barb.rotation.set(sd * -2.4, 0, 0);
+    }
+    group(recoil, 'muzzle', tip + 0.1 * size * r, 0.045 * size, z);
+  }
+  return aim;
+}
+
+/** A coil of rope lying on the ground or a deck. */
+function ropeCoil(parent: THREE.Object3D, x: number, y: number, z: number, s = 1) {
+  for (let i = 0; i < 3; i++) mesh(torus(0.06 * s, 0.014 * s), toon('#c9a36a'), parent, x, y + 0.014 * s + i * 0.022 * s, z).rotation.x = Math.PI / 2;
+}
+
+const kiteTower: TowerBuilder = (root, level, branch, color) => {
+  patch(root, C.dirtB, 0.34);
+  if (branch === null && level === 1) {
+    // A kite-flyer's camp: a little ballista lashed to a stake, a rope coil and one kite up on the wind.
+    mesh(cyl(0.035, 0.05, 0.36, 7), toon(C.wood), root, 0, 0.18, 0);
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.3;
+      const leg = mesh(cyl(0.012, 0.016, 0.3, 5), toon(C.woodDark), root, Math.cos(a) * 0.06, 0.13, Math.sin(a) * 0.06);
+      leg.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35);
+    }
+    ballista(root, 0.36, color, 0.85);
+    ropeCoil(root, -0.18, 0, 0.14);
+    const crate = mesh(box(0.13, 0.1, 0.13), toon(C.wood), root, 0.16, 0.05, 0.17);
+    crate.rotation.y = 0.4;
+    kiteFlight(root, 0.05, [{ r: 0.38, h: 0.95, color: C.cloth, s: 0.9 }]);
+    return;
+  }
+  if (branch === null && level === 2) {
+    // A plank platform with the ballista on a pivot, a windsock and a reel of line.
+    deck(root, 0.26, 0.16);
+    ballista(root, 0.27, color, 1);
+    pennant(root, -0.17, 0.26, -0.17, '#ffd27a');
+    ropeCoil(root, 0.15, 0.26, 0.15, 0.8);
+    kiteFlight(root, 0.3, [{ r: 0.42, h: 1.1, color: C.cloth }]);
+    return;
+  }
+  if (branch === null) {
+    // Level 3: a stone-footed wind tower with a crow's nest and two kites.
+    mesh(cyl(0.2, 0.25, 0.22, 14), toon(C.stone), root, 0, 0.11, 0);
+    mesh(torus(0.2, 0.018), toon(C.stoneDark), root, 0, 0.22, 0).rotation.x = Math.PI / 2;
+    mesh(cyl(0.045, 0.055, 0.42, 10), toon(C.wood), root, 0, 0.43, 0);
+    mesh(cyl(0.17, 0.15, 0.05, 14), toon(C.woodDark), root, 0, 0.64, 0);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      mesh(cyl(0.008, 0.008, 0.08, 4), toon(C.woodDark), root, Math.cos(a) * 0.16, 0.7, Math.sin(a) * 0.16);
+    }
+    mesh(torus(0.16, 0.01, Math.PI * 2, 24), toon(C.wood), root, 0, 0.74, 0).rotation.x = Math.PI / 2;
+    ballista(root, 0.67, color, 1.05);
+    ropeCoil(root, 0.14, 0.22, -0.14, 0.8);
+    kiteFlight(root, 0.7, [{ r: 0.45, h: 1.3, color: C.cloth }, { r: 0.36, h: 1.15, color: '#ffd27a', s: 0.8, a: Math.PI }]);
+    return;
+  }
+  if (branch === 0) {
+    // Kite Flock: a tall ship's mast with spars, a triple ballista and a flock of kites circling it.
+    const h = 0.82 + (level - 4) * 0.05;
+    mesh(cyl(0.22, 0.26, 0.16, 14), toon(C.stone), root, 0, 0.08, 0);
+    mesh(cyl(0.04, 0.055, h, 10), toon(C.wood), root, 0, h / 2, 0);
+    for (const [y, w] of [[h * 0.55, 0.42], [h * 0.85, 0.3]] as [number, number][]) {
+      mesh(box(0.025, 0.025, w), toon(C.woodDark), root, 0, y, 0);
+      if (level >= 5) for (const sd of [-1, 1]) {
+        // Streamers on the spar ends.
+        const st = mesh(cone(0.02, 0.09, 3), toon(sd > 0 ? C.cloth : C.lamp), root, 0, y - 0.04, sd * w / 2);
+        st.rotation.x = Math.PI;
+      }
+    }
+    mesh(cyl(0.14, 0.12, 0.04, 12), toon(C.woodDark), root, 0, h, 0);
+    ballista(root, h + 0.02, color, 0.95, 3);
+    const flock = [
+      { r: 0.48, h: h + 0.55, color: C.cloth },
+      { r: 0.4, h: h + 0.42, color: '#ffd27a', s: 0.85, a: (Math.PI * 2) / 3 },
+      { r: 0.44, h: h + 0.5, color: color, s: 0.9, a: (Math.PI * 4) / 3 },
+    ];
+    kiteFlight(root, h * 0.85, flock);
+    if (level >= 5) mesh(torus(0.14, 0.014), toon(C.brass), root, 0, h - 0.01, 0).rotation.x = Math.PI / 2;
+    if (level >= 6) {
+      // A lantern hung at the masthead to call the kites home.
+      const l = lantern(root, C.lamp, 0.8);
+      l.position.set(0, h + 0.3, 0);
+      mesh(cyl(0.012, 0.012, 0.16, 6), toon(C.iron), root, 0, h + 0.17, 0);
+    }
+    return;
+  }
+  // Whaler: a squat stone bastion with a huge iron-banded ballista, a rope drum and one big kite.
+  mesh(cyl(0.28, 0.32, 0.36, 18), toon(C.stone), root, 0, 0.18, 0);
+  mesh(torus(0.285, 0.022), toon(C.stoneDark), root, 0, 0.36, 0).rotation.x = Math.PI / 2;
+  mesh(box(0.08, 0.1, 0.02), glow(C.lamp, 1.2), root, 0, 0.18, 0.31);
+  const aim = ballista(root, 0.37, color, 1.45 + (level - 4) * 0.08);
+  // The rope drum on the ballista's side.
+  const drum = mesh(cyl(0.06, 0.06, 0.1, 12), toon('#c9a36a'), aim, -0.08, 0.12, 0.13);
+  drum.rotation.x = Math.PI / 2;
+  for (const z of [0.08, 0.18]) mesh(torus(0.062, 0.01), toon(C.iron), aim, -0.08, 0.12, z);
+  if (level >= 5) {
+    // Brass plates round the bastion and a whale-bone arch behind it.
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const p = mesh(box(0.14, 0.18, 0.03), toon(C.brass), root, Math.cos(a) * 0.3, 0.17, Math.sin(a) * 0.3);
+      p.rotation.y = -a + Math.PI / 2;
+    }
+    for (const sd of [-1, 1]) {
+      const rib = mesh(torus(0.22, 0.025, Math.PI * 0.55, 12), toon(C.bone), root, -0.22, 0.3, sd * 0.12);
+      rib.rotation.set(0, Math.PI / 2, Math.PI * 0.22);
+    }
+  }
+  if (level >= 6) {
+    pennant(root, 0.2, 0.36, -0.2);
+    // A rack of spare harpoons with glowing barbs.
+    for (let i = 0; i < 3; i++) {
+      const hp = mesh(cyl(0.01, 0.01, 0.34, 6), toon(C.woodDark), root, -0.2 + i * 0.05, 0.53, 0.2);
+      hp.rotation.x = 0.15;
+      mesh(cone(0.025, 0.07, 6), gem(color, 0.6), root, -0.2 + i * 0.05, 0.73, 0.23);
+    }
+  }
+  kiteFlight(root, 0.4, [{ r: 0.5, h: 1.35, color: C.cloth, s: 1.25 }]);
+};
+// ---------- end Skyhook ----------
+
+const TOWER_BUILDERS: Record<TowerType, TowerBuilder> = { spark: sparkTower, frost: frostTower, pulse: pulseTower, star: starTower, kite: kiteTower };
 
 export function makeTower(type: TowerType, level = 1, branch: Branch = null): THREE.Group {
   const root = new THREE.Group();
@@ -1287,6 +1481,91 @@ export function makeWindmill(): THREE.Group {
   return root;
 }
 
+// ---------- economy buildings: the mill (lab experiment) ----------
+
+/** Mill sails on a hub, facing the camera (+z); the group is named 'spin' and the view turns it about z. */
+function millSails(parent: THREE.Object3D, y: number, z: number, len: number, cloth: boolean) {
+  const sails = group(parent, 'spin', 0, y, z);
+  mesh(sph(0.05, 10, 8), toon(C.brassDark), sails);
+  for (let i = 0; i < 4; i++) {
+    const arm = group(sails, '');
+    arm.rotation.z = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    mesh(box(0.035, len, 0.03), toon(C.woodDark), arm, 0, len / 2, 0);
+    // Lattice frames on the young mill, cloth sails once it is finished.
+    if (cloth) mesh(box(0.13, len * 0.62, 0.012), toon(i % 2 ? '#efe2c4' : '#e6cfa3'), arm, 0.075, len * 0.6, 0.004);
+    else for (let k = 1; k <= 3; k++) mesh(box(0.12, 0.014, 0.014), toon(C.wood), arm, 0.06, len * (0.3 + k * 0.18), 0);
+  }
+  return sails;
+}
+
+/** A flour sack, slumped. */
+function sack(parent: THREE.Object3D, x: number, z: number, s = 1) {
+  const b = mesh(sph(0.075 * s, 12, 10), toon(C.sack), parent, x, 0.06 * s, z);
+  b.scale.set(1, 1.15, 0.9);
+  mesh(cyl(0.025 * s, 0.035 * s, 0.03 * s, 8), toon(C.brassDark), parent, x, 0.15 * s, z);
+}
+
+/**
+ * The village mill, an economy building: it never fights, it grinds gold. Built in stages like the
+ * towers: 1 is a stone footing with a timber frame and bare lattice sails, 2 a wooden post mill with
+ * a shingle cap, 3 a stone tower mill with cloth sails, a pennant, a lantern and a brass coin that
+ * floats over the door. Named parts: 'spin' (the sails), 'flag', 'swing' and 'core' (the lantern)
+ * and 'float' (the coin), animated by the view.
+ */
+export function makeMill(stage = 1): THREE.Group {
+  const root = new THREE.Group();
+  root.name = `mill-${stage}`;
+  patch(root, C.dirtB, 0.34);
+  if (stage <= 1) {
+    rockRing(root, 7, 0.26, 0.075);
+    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) mesh(cyl(0.022, 0.03, 0.62, 8), toon(C.woodDark), root, x * 0.15, 0.31, z * 0.15);
+    mesh(box(0.38, 0.04, 0.38), toon(C.wood), root, 0, 0.3, 0);
+    mesh(box(0.36, 0.05, 0.36), toon(C.wood), root, 0, 0.62, 0);
+    mesh(box(0.05, 0.05, 0.1), toon(C.woodDark), root, 0, 0.62, 0.22);
+    millSails(root, 0.62, 0.29, 0.34, false);
+    sack(root, 0.24, 0.2, 0.9);
+    return root;
+  }
+  if (stage === 2) {
+    mesh(cyl(0.2, 0.25, 0.16, 16), toon(C.stone), root, 0, 0.08, 0);
+    mesh(cyl(0.05, 0.06, 0.3, 10), toon(C.woodDark), root, 0, 0.3, 0);
+    mesh(box(0.36, 0.42, 0.34), toon(C.wood), root, 0, 0.62, 0);
+    mesh(box(0.38, 0.03, 0.36), toon(C.woodDark), root, 0, 0.42, 0);
+    const cap = mesh(cone(0.3, 0.3, 4), toon(C.roof), root, 0, 0.98, 0);
+    cap.rotation.y = Math.PI / 4;
+    mesh(box(0.1, 0.16, 0.02), toon(C.woodDark), root, 0, 0.52, 0.18);
+    mesh(box(0.08, 0.08, 0.02), glow(C.lamp, 1.1), root, 0.1, 0.72, 0.175);
+    millSails(root, 0.74, 0.25, 0.48, false);
+    sack(root, 0.26, 0.18);
+    sack(root, -0.24, 0.22, 0.8);
+    return root;
+  }
+  // Stage 3: the finished tower mill.
+  mesh(cyl(0.26, 0.3, 0.1, 18), toon(C.stoneDark), root, 0, 0.05, 0);
+  mesh(cyl(0.18, 0.25, 0.82, 18), toon(C.stoneLight), root, 0, 0.51, 0);
+  mesh(torus(0.2, 0.02, Math.PI * 2, 28), toon(C.brass), root, 0, 0.8, 0).rotation.x = Math.PI / 2;
+  mesh(cyl(0.21, 0.21, 0.08, 18), toon(C.woodDark), root, 0, 0.94, 0);
+  mesh(halfSph(0.2, true, 18), toon(C.roof), root, 0, 0.97, 0).scale.y = 1.15;
+  mesh(box(0.13, 0.22, 0.02), toon(C.woodDark), root, 0, 0.21, 0.24);
+  mesh(box(0.08, 0.1, 0.02), glow(C.lamp, 1.1), root, 0, 0.58, 0.2);
+  millSails(root, 0.95, 0.24, 0.62, true);
+  pennant(root, 0, 1.18, 0, C.cloth);
+  // A lantern on a bracket by the door.
+  mesh(box(0.16, 0.02, 0.02), toon(C.iron), root, 0.2, 0.42, 0.16);
+  const sw = group(root, 'swing', 0.27, 0.41, 0.16);
+  const l = lantern(sw, C.lamp, 0.5);
+  l.position.y = -0.07;
+  // The coin over the door: the mill's gold.
+  const coin = group(root, 'float', 0, 0.42, 0.34);
+  mesh(cyl(0.07, 0.07, 0.02, 20), gem(C.brass, 0.5), coin).rotation.x = Math.PI / 2;
+  mesh(cyl(0.045, 0.045, 0.024, 16), toon(C.brassDark), coin).rotation.x = Math.PI / 2;
+  sack(root, 0.27, 0.18);
+  sack(root, -0.26, 0.2, 0.85);
+  sack(root, -0.16, 0.28, 0.7);
+  return root;
+}
+// ---------- end economy buildings ----------
+
 // ---------- board ----------
 
 function mulberry(seed: number) {
@@ -1322,9 +1601,12 @@ export const MARGIN = 3;
 /** Tile (tx, ty) centre in world units. One tile is one unit; the board is centred on the origin. */
 export const tileToWorld = (tx: number, ty: number) => ({ x: tx + 0.5 - COLS / 2, z: ty + 0.5 - ROWS / 2 });
 
-/** Road centreline in world units, with each corner rounded into a short curve. */
-export function roadCurve(map: MapDef, radius = 0.45): THREE.Vector2[] {
-  const pts = map.pts.map(([tx, ty]) => { const w = tileToWorld(tx, ty); return new THREE.Vector2(w.x, w.z); });
+/** Every road on a map in tile waypoints, the main one first (rifts that move add more). */
+const roadsOf = (map: MapDef): [number, number][][] => [map.pts, ...(map.rifts ?? [])];
+
+/** Road centreline in world units, with each corner rounded into a short curve. `road` picks one of several rifts' roads. */
+export function roadCurve(map: MapDef, radius = 0.45, road = 0): THREE.Vector2[] {
+  const pts = (roadsOf(map)[road] ?? map.pts).map(([tx, ty]) => { const w = tileToWorld(tx, ty); return new THREE.Vector2(w.x, w.z); });
   // The road visibly runs on behind the rift to the edge of the island.
   const back = pts[0].clone().sub(pts[1]).normalize();
   const out: THREE.Vector2[] = [pts[0].clone().addScaledVector(back, MARGIN + 2), pts[0].clone()];
@@ -1360,35 +1642,76 @@ function roundRect(x: number, z: number, hx: number, hz: number, r: number) {
 
 const ROAD_HALF = 0.36;
 
+// ---------- terrain that matters (hills, woods, water; the rules are in src/game/terrain.ts) ----------
+/** How high a hill's flat top stands, in world units. Towers on it stand this high too. */
+export const HILL_HEIGHT = 0.3;
+/** How deep a river or pond's bed lies below the grass. */
+const WATER_DEPTH = 0.22;
+/** Height of the flat water surface; shadows wading through sink to about here. */
+export const WATER_LEVEL = -0.07;
+
+interface WorldPatch { x: number; z: number; r: number }
+const patches = (list: [number, number, number][] | undefined): WorldPatch[] =>
+  (list ?? []).map(([tx, ty, r]) => { const w = tileToWorld(tx, ty); return { x: w.x, z: w.z, r }; });
+
+/** How much a point lies inside the nearest patch: 1 well inside, easing to 0 from `inner` inside the edge to `soft` past it. */
+function patchMix(ps: WorldPatch[], x: number, z: number, inner: number, soft: number) {
+  let m = 0;
+  for (const p of ps) m = Math.max(m, 1 - smoothstep(p.r - inner, p.r + soft, Math.hypot(x - p.x, z - p.z)));
+  return m;
+}
+// ---------- end terrain ----------
+
 /**
- * Samples the island at a world point: height, how much road and how much cliff edge it is.
- * The playable board stays flat so towers stand level; hills only rise in the margin.
+ * Samples the island at a world point: height, how much road and how much cliff edge it is, and
+ * how much hill, wood and water. The playable board is flat apart from its hills (flat-topped, so
+ * towers stand level) and its water (a sunken bed under a flat surface); scenery hills rise in the margin.
  */
 function makeTerrain(map: MapDef) {
   const noise = makeNoise(map.seed * 31 + 7);
-  const curve = roadCurve(map);
+  const curves = roadsOf(map).map((_, i) => roadCurve(map, 0.45, i));
+  const hills = patches(map.terrain?.hills), woods = patches(map.terrain?.woods), water = patches(map.terrain?.water);
   // The island reaches a little past the margin tiles so scenery there sits on flat ground.
   const hx = COLS / 2 + MARGIN + 0.4, hz = ROWS / 2 + MARGIN + 0.4;
   return (x: number, z: number) => {
-    const road = distToCurve(curve, x, z);
+    let road = Infinity;
+    for (const c of curves) road = Math.min(road, distToCurve(c, x, z));
     const roadMix = 1 - smoothstep(ROAD_HALF - 0.04, ROAD_HALF + 0.12, road);
     const outside = Math.hypot(Math.max(Math.abs(x) - COLS / 2, 0), Math.max(Math.abs(z) - ROWS / 2, 0));
-    const hills = Math.max(0, noise(x * 0.5, z * 0.5)) * 0.32 * smoothstep(0, 0.7, outside);
-    let h = hills * (1 - roadMix) - 0.05 * roadMix;
+    const scenery = Math.max(0, noise(x * 0.5, z * 0.5)) * 0.32 * smoothstep(0, 0.7, outside);
+    // Terrain: a soft-edged plateau for each hill, a sunken bed for water, a forest floor for woods.
+    const hill = patchMix(hills, x, z, 0.05, 0.45), wet = patchMix(water, x, z, 0.3, 0.15), wood = patchMix(woods, x, z, 0, 0.3);
+    let h = Math.max(scenery, HILL_HEIGHT * hill) * (1 - roadMix) - 0.05 * roadMix;
+    h -= WATER_DEPTH * wet;
     const edge = smoothstep(-0.55, 0.3, roundRect(x, z, hx, hz, 1.4));
     h = h * (1 - edge) - 1.3 * edge;
-    return { h, road, roadMix, edge, outside, n: noise(x * 0.35 + 40, z * 0.35) };
+    return { h, road, roadMix, edge, outside, hill, wet, wood, n: noise(x * 0.35 + 40, z * 0.35) };
   };
 }
 
-/** The diorama island: one smooth terrain mesh with the road painted in, plus scenery. */
+const heightCache = new WeakMap<MapDef, (x: number, z: number) => number>();
+/** Ground height at a world point, so towers stand on hills and shadows wade through water. */
+export function groundHeight(map: MapDef): (x: number, z: number) => number {
+  let f = heightCache.get(map);
+  if (!f) {
+    const sample = makeTerrain(map);
+    f = (x, z) => sample(x, z).h;
+    heightCache.set(map, f);
+  }
+  return f;
+}
+
+/** The diorama island: one smooth terrain mesh with the roads painted in, plus water, woods and scenery. */
 export function makeBoard(map: MapDef): THREE.Group {
   const root = new THREE.Group();
   root.name = `board-${map.id}`;
   const rnd = mulberry(map.seed * 7919 + 13);
   const sample = makeTerrain(map);
-  const start = tileToWorld(map.pts[0][0], map.pts[0][1]);
+  const roads = roadsOf(map);
+  // Rifts that move: the Gloom stains the ground around every rift.
+  const starts = roads.map((r) => tileToWorld(r[0][0], r[0][1]));
   const end = tileToWorld(map.pts[map.pts.length - 1][0], map.pts[map.pts.length - 1][1]);
+  const nearAnyRift = (x: number, z: number, d: number) => starts.some((s) => Math.hypot(x - s.x, z - s.z) < d);
 
   const W = COLS + MARGIN * 2 + 1.4, D = ROWS + MARGIN * 2 + 1.4, RES = 9;
   const geo = new THREE.PlaneGeometry(W, D, Math.round(W * RES), Math.round(D * RES));
@@ -1398,6 +1721,7 @@ export function makeBoard(map: MapDef): THREE.Group {
   const grassA = new THREE.Color(C.grassA), grassB = new THREE.Color(C.grassB), edgeGrass = new THREE.Color(C.grassEdge);
   const dirt = new THREE.Color(C.dirt), dirtB = new THREE.Color(C.dirtB), cliff = new THREE.Color(C.cliff), deep = new THREE.Color(C.cliffDeep);
   const blight = new THREE.Color(C.blight), blightDeep = new THREE.Color(C.blightDeep);
+  const hillTop = new THREE.Color(C.hillTop), forest = new THREE.Color(C.forestFloor), bank = new THREE.Color(C.riverBank);
   const col = new THREE.Color(), tmp = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
@@ -1405,12 +1729,17 @@ export function makeBoard(map: MapDef): THREE.Group {
     pos.setY(i, s.h);
     col.copy(grassA).lerp(grassB, s.n * 0.5 + 0.5);
     col.lerp(edgeGrass, smoothstep(0, 0.8, s.outside) * 0.6);
-    // The Gloom stains the ground around the rift, with a ragged edge.
-    const stain = 1 - smoothstep(1.4, 3.2, Math.hypot(x - start.x, z - start.z) + s.n * 0.6);
+    // Terrain: sunlit hilltops, a dark forest floor and muddy river banks read at a glance.
+    col.lerp(hillTop, smoothstep(0.4, 0.95, s.hill) * 0.75);
+    col.lerp(forest, s.wood * 0.8);
+    // The Gloom stains the ground around each rift, with a ragged edge.
+    let stain = 0;
+    for (const st of starts) stain = Math.max(stain, 1 - smoothstep(1.4, 3.2, Math.hypot(x - st.x, z - st.z) + s.n * 0.6));
     tmp.copy(blight).lerp(blightDeep, stain);
     col.lerp(tmp, stain * 0.9);
     tmp.copy(dirt).lerp(dirtB, s.n * 0.5 + 0.5);
     col.lerp(tmp, s.roadMix);
+    col.lerp(bank, smoothstep(0.05, 0.5, s.wet) * 0.85);
     tmp.copy(cliff).lerp(deep, smoothstep(0.4, 1, s.edge));
     col.lerp(tmp, smoothstep(0.05, 0.4, s.edge));
     colors.set([col.r, col.g, col.b], i * 3);
@@ -1427,30 +1756,83 @@ export function makeBoard(map: MapDef): THREE.Group {
   under.castShadow = false;
   under.userData.noOutline = true;
 
-  // Pebbles along the road edges.
-  const curve = roadCurve(map);
-  for (let i = 0; i < curve.length - 1; i++) {
-    const a = curve[i], b = curve[i + 1], len = a.distanceTo(b);
-    for (let d = 0; d < len; d += 0.45) {
-      if (rnd() < 0.4) continue;
-      const t = d / len, side = (rnd() < 0.5 ? -1 : 1) * (ROAD_HALF - 0.02 + rnd() * 0.06);
-      const px = a.x + (b.x - a.x) * t - ((b.y - a.y) / len) * side, pz = a.y + (b.y - a.y) * t + ((b.x - a.x) / len) * side;
-      const p = mesh(new THREE.DodecahedronGeometry(0.03 + rnd() * 0.035, 0), toon(rnd() < 0.5 ? C.stone : C.stoneDark), root, px, sample(px, pz).h + 0.01, pz);
-      p.castShadow = false;
-      p.userData.noOutline = true;
+  // Terrain: flat water over each sunken bed, with lily pads and reeds; the ground hides its edges.
+  for (const p of patches(map.terrain?.water)) {
+    const surface = mesh(new THREE.CircleGeometry(p.r + 0.12, 28), gem(C.water, 0.18), root, p.x, WATER_LEVEL, p.z);
+    surface.rotation.x = -Math.PI / 2;
+    surface.castShadow = false;
+    surface.userData.noOutline = true;
+    for (let k = 0; k < 3; k++) {
+      const a = rnd() * Math.PI * 2, d = p.r * (0.3 + rnd() * 0.5), px = p.x + Math.cos(a) * d, pz = p.z + Math.sin(a) * d;
+      if (sample(px, pz).road < 0.55) continue;
+      if (rnd() < 0.6) {
+        const pad = mesh(cyl(0.09 + rnd() * 0.05, 0.09, 0.012, 12), toon(C.leafB), root, px, WATER_LEVEL + 0.01, pz);
+        pad.castShadow = false;
+        pad.userData.noOutline = true;
+      } else {
+        for (let r = 0; r < 3; r++) {
+          const reed = mesh(cyl(0.008, 0.014, 0.22 + rnd() * 0.12, 5), toon(C.leafDark), root, px + (rnd() - 0.5) * 0.12, WATER_LEVEL + 0.12, pz + (rnd() - 0.5) * 0.12);
+          reed.userData.noOutline = true;
+        }
+      }
     }
   }
 
-  // Scenery: graves and dead trees near the rift, lamp posts near the heart, forest elsewhere.
+  // Pebbles along the road edges, on every road, but not where it wades through water.
+  for (let ri = 0; ri < roads.length; ri++) {
+    const curve = roadCurve(map, 0.45, ri);
+    for (let i = 0; i < curve.length - 1; i++) {
+      const a = curve[i], b = curve[i + 1], len = a.distanceTo(b);
+      for (let d = 0; d < len; d += 0.45) {
+        if (rnd() < 0.4) continue;
+        const t = d / len, side = (rnd() < 0.5 ? -1 : 1) * (ROAD_HALF - 0.02 + rnd() * 0.06);
+        const px = a.x + (b.x - a.x) * t - ((b.y - a.y) / len) * side, pz = a.y + (b.y - a.y) * t + ((b.x - a.x) / len) * side;
+        const s = sample(px, pz);
+        if (s.wet > 0.2) continue;
+        const p = mesh(new THREE.DodecahedronGeometry(0.03 + rnd() * 0.035, 0), toon(rnd() < 0.5 ? C.stone : C.stoneDark), root, px, s.h + 0.01, pz);
+        p.castShadow = false;
+        p.userData.noOutline = true;
+      }
+    }
+  }
+
+  // Terrain: woods are dense groves of storybook trees, kept off the road so it reads as a track through them.
+  for (const w of patches(map.terrain?.woods)) {
+    const n = Math.round(w.r * w.r * 9);
+    for (let k = 0; k < n; k++) {
+      const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd()) * w.r * 0.95, px = w.x + Math.cos(a) * d, pz = w.z + Math.sin(a) * d;
+      const s = sample(px, pz);
+      if (s.road < ROAD_HALF + 0.22 || s.wet > 0.05) continue;
+      const tree = makeTree(rnd);
+      tree.scale.multiplyScalar(0.85 + rnd() * 0.3);
+      tree.position.set(px, s.h, pz);
+      tree.rotation.y = rnd() * Math.PI * 2;
+      root.add(tree);
+    }
+  }
+  // Terrain: a few boulders at the foot of each hill.
+  for (const hl of patches(map.terrain?.hills)) {
+    for (let k = 0; k < 3; k++) {
+      const a = rnd() * Math.PI * 2, px = hl.x + Math.cos(a) * (hl.r + 0.25), pz = hl.z + Math.sin(a) * (hl.r + 0.25);
+      const s = sample(px, pz);
+      if (s.road < 0.6 || s.wet > 0.05 || s.wood > 0.05) continue;
+      const rock = makeRock(rnd);
+      rock.scale.multiplyScalar(0.6);
+      rock.position.set(px, s.h, pz);
+      root.add(rock);
+    }
+  }
+
+  // Scenery: graves and dead trees near the rifts, lamp posts near the heart, forest elsewhere.
   const millTile = map.id === 'mill' ? `${COLS - 1},${-1}` : '';
   let lamps = 0;
   for (let ty = -MARGIN; ty < ROWS + MARGIN; ty++) {
     for (let tx = -MARGIN; tx < COLS + MARGIN; tx++) {
       const { x, z } = tileToWorld(tx, ty);
       const s = sample(x, z);
-      if (s.road < 0.75 || s.edge > 0.02) continue;
+      if (s.road < 0.75 || s.edge > 0.02 || s.wet > 0.02 || s.wood > 0.02) continue;
       const inside = tx >= 0 && ty >= 0 && tx < COLS && ty < ROWS;
-      const nearRift = Math.hypot(x - start.x, z - start.z) < 2.6;
+      const nearRift = nearAnyRift(x, z, 2.6);
       const nearHeart = Math.hypot(x - end.x, z - end.z) < 1.8;
       if (tx + ',' + ty === millTile) {
         const mill = makeWindmill();
@@ -1467,7 +1849,7 @@ export function makeBoard(map: MapDef): THREE.Group {
         else if (v < 0.58) obj = makeTree(rnd);
         else if (v < 0.75) obj = makeRock(rnd);
         else if (v < 0.84) obj = makeMushrooms(rnd);
-      } else if (rnd() < (nearRift ? 0.25 : 0.06)) {
+      } else if (s.hill < 0.05 && rnd() < (nearRift ? 0.25 : 0.06)) {
         // Keep small things to the tile corner so towers can still stand there.
         obj = nearRift ? makeGrave(rnd) : makeMushrooms(rnd);
         obj.scale.setScalar(0.7);

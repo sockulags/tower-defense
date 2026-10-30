@@ -1,11 +1,15 @@
 import type { Loadout, TalentId } from './data/hero';
 import type { BoonId, BoonMods } from './data/boons'; // boons between waves
 
-export type TowerType = 'spark' | 'frost' | 'pulse' | 'star';
+export type TowerType = 'spark' | 'frost' | 'pulse' | 'star'
+  // the fifth tower (Skyhook)
+  | 'kite';
 export type EnemyType = 'crawler' | 'flitter' | 'lump' | 'shimmer' | 'splitter' | 'speck' | 'dasher' | 'giant'
   // bosses
   | 'stomper' | 'thief' | 'mender';
-export type MapId = 'mill' | 'marsh' | 'ring';
+export type MapId = 'mill' | 'marsh' | 'ring'
+  // terrain and rifts that move
+  | 'ford' | 'bramble' | 'fork';
 
 // ---------- shadow traits and tower attributes ----------
 
@@ -66,6 +70,14 @@ export interface MapDef {
   survival?: boolean;
   /** Road waypoints in tile coordinates. The last point is the heart. */
   pts: [number, number][];
+  // ---------- terrain and rifts that move (game/terrain.ts) ----------
+  /** Round patches of ground, each [centre x, centre y, radius] in tiles. */
+  terrain?: { hills?: [number, number, number][]; woods?: [number, number, number][]; water?: [number, number, number][] };
+  /** More roads into the same heart, each from its own rift, in tile waypoints. */
+  rifts?: [number, number][][];
+  /** Which rift each wave comes from (0 is `pts`), repeated over the waves. */
+  riftOrder?: number[];
+  // ---------- end terrain and rifts ----------
 }
 
 export interface TowerDef {
@@ -169,6 +181,8 @@ export interface Tower {
   mods?: BoonMods;
   /** Bosses: seconds left knocked out by a Stomper's stomp; it cannot fire meanwhile. */
   knocked?: number;
+  /** Terrain: range multiplier from the ground it stands on, set when placed (absent off a hill). */
+  reach?: number;
 }
 
 /** Anything that deals damage and keeps a tally: a tower or the Warden. */
@@ -192,6 +206,8 @@ export interface Hero {
   flash: number;
   /** Boons between waves: the run's boons, shared with the game (set when placed). */
   mods?: BoonMods;
+  /** Terrain: range multiplier from the ground it stands on, set when placed (absent off a hill). */
+  reach?: number;
 }
 
 export interface Enemy {
@@ -215,6 +231,8 @@ export interface Enemy {
   mending: boolean;
   /** Bosses: what this boss is doing; created by game/bosses.ts on its first tick. */
   boss?: BossState;
+  /** Rifts that move: which of the game's `paths` it walks (absent is the main road). */
+  road?: number;
 }
 
 export interface Stats {
@@ -264,7 +282,12 @@ export interface Hooks {
 
 export interface Game {
   map: MapDef;
+  /** The main road, the same as `paths[0]`. */
   path: Path;
+  /** Rifts that move: every road into the heart, the main one first (game/terrain.ts). */
+  paths: Path[];
+  /** Rifts that move: the rift the current or last wave came from. */
+  rift: number;
   gold: number;
   lives: number;
   maxLives: number;
@@ -291,7 +314,7 @@ export interface Game {
   loadout: Loadout;
   heroTalents: Record<TalentId, number>;
   /** Developer lab switches. */
-  dev?: { god: boolean; freeGold: boolean; allTowers: boolean };
+  dev?: { god: boolean; freeGold: boolean; allTowers: boolean; /** Economy buildings: mills may be built (lab experiment). */ mills?: boolean };
   /** Pointer position on the board in simulation pixels. */
   hover: { x: number; y: number } | null;
   t: number;
@@ -302,4 +325,31 @@ export interface Game {
   combo?: ComboLog;
   /** Boons between waves: what the run has taken and the choice on offer (game/boons.ts). */
   boons: BoonState;
+  // ---------- economy buildings (mills, lab experiment) ----------
+  /** Mills on the board (game/mills.ts); absent until the first is built. */
+  mills?: Mill[];
+  /** The player is placing a mill (the mill medallion); `build` is null meanwhile. */
+  millBuild?: boolean;
+  /** The mill whose card is open. */
+  millSelected?: Mill | null;
+  // ---------- end economy buildings ----------
+  // ---------- the squad ----------
+  /** The four tower types this run brings (game/squad.ts); the belt shows these. Absent: no limit. */
+  squad?: TowerType[];
+  // ---------- end the squad ----------
 }
+
+// ---------- economy buildings (mills, lab experiment) ----------
+/** A mill: costs gold, pays a little after every cleared wave, and grows in stages as it stands. */
+export interface Mill {
+  /** Free position in simulation pixels, placed like a tower. */
+  x: number; y: number;
+  /** Cleared waves it has stood through; sets its stage (data/mills.ts). */
+  waves: number;
+  /** Gold it has paid so far. */
+  paid: number;
+  invested: number;
+  /** Simulation time of the last payout, for the view to animate; -9 before the first. */
+  payAt: number;
+}
+// ---------- end economy buildings ----------

@@ -86,6 +86,10 @@ export const sv: Strings = {
     mill: { name: 'Kvarnbacken', blurb: 'Lång slingrande väg förbi den gamla kvarnen. Bra första kväll.' },
     marsh: { name: 'Träskdiket', blurb: 'Kortare väg och segare skuggor. Låses upp när du klarat Kvarnbacken.' },
     ring: { name: 'Ringvallen', blurb: 'Survival. Spiralen leder in mot hjärtat och vågorna tar aldrig slut.' },
+    // terrain and rifts that move
+    ford: { name: 'Pilvadet', blurb: 'Vägen vadar över en å två gånger. Vatten saktar ner skuggor och kullar når längre. Låses upp när du klarat Träskdiket.' },
+    bramble: { name: 'Snårskogen', blurb: 'Träd stoppar raka skott; Stjärnfall slår i en båge över dem. Låses upp när du klarat Pilvadet.' },
+    fork: { name: 'Vägskälet', blurb: 'Tre sprickor turas om att skicka vågorna. Låses upp när du klarat Snårskogen.' },
   },
 
   towers: {
@@ -104,6 +108,11 @@ export const sv: Strings = {
     star: { name: 'Stjärnfall', desc: 'Långsamt nedslag som skadar en hel klunga.', branches: [
       { name: 'Meteor', desc: 'Större och tyngre nedslag.' },
       { name: 'Splitter', desc: 'Nedslaget skickar fem splitter till fiender i närheten.' },
+    ] },
+    // the fifth tower
+    kite: { name: 'Himlakrok', desc: 'Harpuner på långt håll som träffar flygare dubbelt så hårt.', branches: [
+      { name: 'Drakflock', desc: 'Harpunerar tre flygare åt gången, hårt. Kan inte längre träffa marken.' },
+      { name: 'Valfångare', desc: 'En enorm, långsammare harpun med längre räckvidd som slår igenom rustning.' },
     ] },
   },
 
@@ -243,6 +252,10 @@ export const sv: Strings = {
     pages: {
       mill: 'Solen går ner över kvarnen. Tänd lyktorna innan skuggorna kommer.',
       marsh: 'Mörkret har hittat vägen över träsket. Håll den till morgonen.',
+      // terrain and rifts that move
+      ford: 'Pilarna lutar sig över vadet, och skuggorna hatar att bli blöta om fötterna.',
+      bramble: 'Vägen går in i snårskogen, där lyktorna inte ser långt.',
+      fork: 'Tre sprickor har öppnat sig runt vägskälet, och de turas om.',
     },
     resultWon: 'Här kom gryningen.',
     resultTried: (n) => `Förra gången höll du till våg ${n}.`,
@@ -413,4 +426,48 @@ export const sv: Strings = {
     version: (v) => `Version ${v}`,
   },
   // --- end installable app ---
+
+  // ---------- the squad (src/game/squad.ts, the Lodge's Squad tab, the storybook page) ----------
+  squad: {
+    tab: 'Trupp',
+    title: 'Din trupp',
+    intro: 'Varje runda tar med fyra torn. Välj de fyra som klarar skuggorna som väntar.',
+    pickSlot: 'Tryck på en plats och sedan på tornet som ska ta dess plats.',
+    slot: (n, tower) => `Plats ${n}: ${tower}`,
+    inSquad: 'I truppen',
+    bring: 'Ta med',
+    bringFor: (tower, out) => `Ta med ${tower} i stället för ${out}`,
+    change: 'Byt',
+    done: 'Klar',
+    swapHint: (tower) => `Tryck på ett torn för att byta det mot ${tower}.`,
+    swapFor: (out, tower) => `Byt ${out} mot ${tower}`,
+    shadows: 'Skuggor i kväll',
+    unlocked: 'Truppen är upplåst: välj dina fyra torn i stugan.',
+  },
+  // ---------- end the squad ----------
+
+  // ---------- terrain and rifts that move ----------
+  terrain: {
+    hill: (pct) => `På en kulle: når ${pct} % längre`,
+    woods: 'Träd stoppar dess skott',
+    arcs: 'Slår i en båge över träden',
+    rift: { north: 'Från sprickan i norr', south: 'Från sprickan i söder', east: 'Från sprickan i öster', west: 'Från sprickan i väster' },
+  },
+  // ---------- end terrain and rifts that move ----------
+
+  // ---------- economy buildings: the mill (lab experiment) ----------
+  mills: {
+    name: 'Kvarn',
+    inHint: 'kvarnen',
+    desc: 'Mal fram lite guld efter varje våg den står kvar, och betalar mer när den växer. Den slåss aldrig.',
+    stage: (n) => `Steg ${n} av 3`,
+    pays: (gold) => `Ger ${gold} guld efter varje våg`,
+    grows: (waves) => (waves === 1 ? 'Växer efter nästa våg' : `Växer om ${waves} vågor`),
+    grown: 'Fullvuxen',
+    paid: (gold) => `Har gett ${gold} guld hittills`,
+    limit: (n) => `Högst ${n} kvarnar per omgång`,
+    full: 'Inga fler kvarnar den här omgången',
+    lab: 'Kvarnar (experiment)',
+  },
+  // ---------- end economy buildings ----------
 };
