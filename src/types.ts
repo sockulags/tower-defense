@@ -54,7 +54,6 @@ export interface Tower {
   tx: number; ty: number;
   x: number; y: number;
   level: number;
-  xp: number;
   branch: Branch;
   cd: number;
   invested: number;

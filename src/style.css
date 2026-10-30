@@ -107,8 +107,9 @@ button { font: inherit; color: inherit; }
 .branch button span { font-size: .85rem; color: var(--muted); font-weight: 400; }
 .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .acts .btn { flex: 1; }
-.xpbar { height: 6px; background: #0b0c14; border-radius: 3px; overflow: hidden; }
-.xpbar i { display: block; height: 100%; width: 0; background: var(--frost); }
+.levelpips { display: flex; gap: 4px; }
+.levelpips b { flex: 1; height: 6px; border-radius: 3px; background: #0b0c14; }
+.levelpips b.f { background: var(--lamp); }
 .hint { font-size: .88rem; color: var(--muted); }
 .keys { font-size: .8rem; color: var(--muted); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

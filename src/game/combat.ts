@@ -2,7 +2,7 @@ import { T } from '../config';
 import { TOWERS } from '../data/towers';
 import { sfx } from '../audio';
 import { burst, floatText } from './fx';
-import { giveXp, stats } from './towers';
+import { stats } from './towers';
 import type { Enemy, Game, Shot, Stats, Tower } from '../types';
 
 export function damage(g: Game, e: Enemy, amount: number, tw: Tower | null) {
@@ -10,7 +10,7 @@ export function damage(g: Game, e: Enemy, amount: number, tw: Tower | null) {
   const real = Math.min(e.hp, amount);
   e.hp -= amount;
   e.lastHit = g.t;
-  if (tw) { tw.dealt += real; giveXp(g, tw, real); }
+  if (tw) tw.dealt += real;
   if (e.hp <= 0) {
     e.dead = true;
     g.gold += e.reward;

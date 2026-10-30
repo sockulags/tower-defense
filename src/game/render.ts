@@ -125,32 +125,36 @@ export function draw(ctx: CanvasRenderingContext2D, g: Game) {
   ctx.fillStyle = '#fff3d6'; ctx.beginPath(); ctx.arc(heart.x, heart.y, T * 0.09 * beat, 0, 7); ctx.fill();
 
   for (const t of g.towers) drawTowerShape(ctx, t.type, t.x, t.y, 1, t.angle, time);
-  for (const e of g.enemies) drawEnemy(ctx, g, e);
 
-  // Darkness, with lantern light cut out of it.
+  // Darkness over the ground only, with a small pool of light around each lantern.
+  // The light is mood, not range: range is shown when building or selecting.
   fctx.globalCompositeOperation = 'source-over';
   fctx.clearRect(0, 0, W, H);
-  fctx.fillStyle = 'rgba(5,5,14,0.6)';
+  fctx.fillStyle = 'rgba(5,5,14,0.42)';
   fctx.fillRect(0, 0, W, H);
   fctx.globalCompositeOperation = 'destination-out';
-  for (const t of g.towers) light(t.x, t.y, stats(t).range * T * 1.05 + 6 * Math.sin(time * 3 + t.tx), 0.85);
-  light(heart.x, heart.y, T * 2.2 * beat, 0.9);
-  for (const sh of g.shots) light(sh.x, sh.y, T * 0.6, 0.6);
-  for (const f of g.fx) if (f.k === 'ring') light(f.x, f.y, f.r1, (0.4 * f.life) / f.max);
+  for (const t of g.towers) light(t.x, t.y, T * 1.4 + 3 * Math.sin(time * 3 + t.tx), 0.8);
+  light(heart.x, heart.y, T * 2 * beat, 0.9);
   ctx.drawImage(fog, 0, 0);
 
   ctx.globalCompositeOperation = 'lighter';
   for (const t of g.towers) {
-    const color = TOWERS[t.type].color, r = stats(t).range * T;
+    const color = TOWERS[t.type].color, r = T * 0.75;
     const grad = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, r);
-    grad.addColorStop(0, color + '30'); grad.addColorStop(1, color + '00');
+    grad.addColorStop(0, color + '38'); grad.addColorStop(1, color + '00');
     ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(t.x, t.y, r, 0, 7); ctx.fill();
   }
   {
-    const grad = ctx.createRadialGradient(heart.x, heart.y, 0, heart.x, heart.y, T * 1.6);
-    grad.addColorStop(0, 'rgba(255,170,80,0.35)'); grad.addColorStop(1, 'rgba(255,170,80,0)');
-    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(heart.x, heart.y, T * 1.6, 0, 7); ctx.fill();
+    const grad = ctx.createRadialGradient(heart.x, heart.y, 0, heart.x, heart.y, T * 1.4);
+    grad.addColorStop(0, 'rgba(255,170,80,0.3)'); grad.addColorStop(1, 'rgba(255,170,80,0)');
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(heart.x, heart.y, T * 1.4, 0, 7); ctx.fill();
   }
+
+  // Enemies sit above the darkness so they are always easy to read.
+  ctx.globalCompositeOperation = 'source-over';
+  for (const e of g.enemies) drawEnemy(ctx, g, e);
+
+  ctx.globalCompositeOperation = 'lighter';
   for (const sh of g.shots) {
     const big = sh.kind === 'shell';
     ctx.fillStyle = sh.color; ctx.beginPath(); ctx.arc(sh.x, sh.y, big ? 6 : 3.5, 0, 7); ctx.fill();

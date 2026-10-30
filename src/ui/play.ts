@@ -3,7 +3,7 @@ import { TOWERS, TOWER_ORDER } from '../data/towers';
 import { draw } from '../game/render';
 import { createGame, giveUp, startWave, update } from '../game/run';
 import {
-  canTrain, chooseBranch, needsBranch, nickname, placeTower, sell, sellValue, stats, train, trainCost, xpNeed, NAMED_LEVEL,
+  canUpgrade, chooseBranch, needsBranch, nickname, placeTower, sell, sellValue, stats, upgrade, upgradeCost, NAMED_LEVEL,
 } from '../game/towers';
 import { L, fmt } from '../i18n';
 import { initAudio, isMuted, setMuted } from '../audio';
@@ -82,10 +82,10 @@ function updateHud(g: Game) {
 
   const t = g.selected;
   if (t) {
-    const xp = document.getElementById('iXp');
-    if (xp) xp.style.width = (t.level >= MAX_LEVEL ? 100 : Math.min(100, (t.xp / xpNeed(t.level)) * 100)) + '%';
-    const bt = document.getElementById('iTrain') as HTMLButtonElement | null;
-    if (bt) { const dis = !canTrain(g, t); if (bt.disabled !== dis) bt.disabled = dis; }
+    const dis = !canUpgrade(g, t);
+    for (const b of Array.from(document.querySelectorAll<HTMLButtonElement>('#iUpgrade, [data-br]'))) {
+      if (b.disabled !== dis) b.disabled = dis;
+    }
     const rec = document.getElementById('iRecord');
     if (rec) rec.textContent = L().info.record(t.kills, fmt(t.dealt));
   }
@@ -126,27 +126,32 @@ function renderInfo() {
     const t = g.selected, d = TOWERS[t.type], st = stats(t), text = s.towers[t.type];
     const title = t.branch !== null ? text.branches[t.branch].name : text.name;
     let h = `<div><h3 style="color:${d.color}">${title}</h3><div class="muted">${s.info.level(t.level)}${t.level >= NAMED_LEVEL ? ` · ${nickname(t)}` : ''}</div></div>`;
-    h += `<div class="xpbar"><i id="iXp"></i></div>`;
+    h += `<div class="levelpips">${Array.from({ length: MAX_LEVEL }, (_, i) => `<b class="${i < t.level ? 'f' : ''}"></b>`).join('')}</div>`;
     h += `<dl class="stats">
       <dt>${s.info.damage}</dt><dd>${st.dmg.toFixed(1)}${st.targets > 1 ? ' × 2' : ''}</dd>
       <dt>${s.info.range}</dt><dd>${s.info.tiles(st.range.toFixed(1))}</dd>
       <dt>${s.info.rate}</dt><dd>${s.info.perSecond((1 / st.rate).toFixed(2))}</dd>`;
     if (st.slow) h += `<dt>${s.info.slows}</dt><dd>${Math.round(st.slow * 100)} %</dd>`;
     h += `</dl><div class="hint" id="iRecord"></div>`;
+    const cost = s.menu.goldCost(upgradeCost(t));
     if (needsBranch(t)) {
       h += `<div class="branch"><b style="color:var(--lamp)">${s.info.chooseBranch}</b>`;
-      text.branches.forEach((br, i) => { h += `<button class="btn" data-br="${i}">${br.name}<span>${br.desc}</span></button>`; });
-      h += `</div>`;
-    } else if (t.branch !== null) {
-      h += `<p class="hint">${text.branches[t.branch].desc}</p>`;
+      text.branches.forEach((br, i) => {
+        h += `<button class="btn" data-br="${i}"><b>${br.name} · ${cost}</b><span>${br.desc}</span></button>`;
+      });
+      h += `</div><div class="acts"><button class="btn" id="iSell">${s.info.sell(sellValue(t))}</button></div>`;
+    } else {
+      if (t.branch !== null) h += `<p class="hint">${text.branches[t.branch].desc}</p>`;
+      const maxed = t.level >= MAX_LEVEL;
+      h += `<div class="acts">${maxed
+        ? `<button class="btn" disabled>${s.info.maxLevel}</button>`
+        : `<button class="btn primary" id="iUpgrade">${s.info.upgrade(upgradeCost(t))}</button>`}<button class="btn" id="iSell">${s.info.sell(sellValue(t))}</button></div>`;
     }
-    const maxed = t.level >= MAX_LEVEL;
-    h += `<div class="acts"><button class="btn" id="iTrain">${maxed ? s.info.maxLevel : s.info.train(trainCost(t))}</button><button class="btn" id="iSell">${s.info.sell(sellValue(t))}</button></div>`;
     box.innerHTML = h;
     box.querySelectorAll<HTMLButtonElement>('[data-br]').forEach((b) => {
       b.onclick = () => chooseBranch(g, t, Number(b.dataset.br) as 0 | 1);
     });
-    $('iTrain').onclick = () => train(g, t);
+    document.getElementById('iUpgrade')?.addEventListener('click', () => upgrade(g, t));
     $('iSell').onclick = () => { sell(g, t); renderInfo(); };
     updateHud(g);
   } else if (g.build) {

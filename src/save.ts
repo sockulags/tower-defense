@@ -14,7 +14,7 @@ export interface SaveData {
 const KEY = 'duskwatch-save-v1';
 const fresh = (): SaveData => ({
   dust: 0, total: 0,
-  up: { gold: 0, lives: 0, dmg: 0, xp: 0 },
+  up: { gold: 0, lives: 0, dmg: 0, craft: 0 },
   best: { mill: 0, marsh: 0, ring: 0 },
   won: {},
 });
@@ -46,6 +46,7 @@ export function playerLevel() {
 }
 
 export const metaDamage = () => 1 + 0.06 * save.up.dmg;
-export const metaXp = () => 1 + 0.15 * save.up.xp;
+/** Multiplier on tower upgrade prices. */
+export const metaDiscount = () => 1 - 0.06 * save.up.craft;
 export const towerUnlocked = (t: TowerType) => playerLevel() >= (TOWERS[t].unlock ?? 1);
 export const mapOpen = (id: MapId) => id !== 'marsh' || !!save.won.mill;

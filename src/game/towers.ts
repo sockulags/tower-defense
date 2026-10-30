@@ -1,15 +1,15 @@
 import { COLS, MAX_LEVEL, ROWS, T } from '../config';
 import { TOWERS } from '../data/towers';
 import { L } from '../i18n';
-import { metaDamage, metaXp, towerUnlocked } from '../save';
+import { metaDamage, metaDiscount, towerUnlocked } from '../save';
 import { sfx } from '../audio';
 import { burst, floatText } from './fx';
 import type { Game, Stats, Tower, TowerType } from '../types';
 
+/** At this level the next upgrade is a choice between two branches. */
 export const BRANCH_LEVEL = 3;
+/** Towers earn a name when they reach this level, which is the branch upgrade. */
 export const NAMED_LEVEL = 4;
-
-export const xpNeed = (level: number) => Math.round(30 * Math.pow(level, 1.8));
 
 export function stats(t: Tower): Stats {
   const d = TOWERS[t.type], lv = t.level - 1, b = t.branch;
@@ -43,7 +43,7 @@ export function placeTower(g: Game, type: TowerType, tx: number, ty: number): To
   if (g.gold < d.cost || !canBuild(g, tx, ty) || !towerUnlocked(type)) return null;
   g.gold -= d.cost;
   const t: Tower = {
-    type, tx, ty, x: (tx + 0.5) * T, y: (ty + 0.5) * T, level: 1, xp: 0, branch: null, cd: 0,
+    type, tx, ty, x: (tx + 0.5) * T, y: (ty + 0.5) * T, level: 1, branch: null, cd: 0,
     invested: d.cost, angle: -Math.PI / 2, kills: 0, dealt: 0, nick: Math.floor(Math.random() * 1000), flash: 0,
   };
   g.towers.push(t);
@@ -52,36 +52,32 @@ export function placeTower(g: Game, type: TowerType, tx: number, ty: number): To
   return t;
 }
 
-export function giveXp(g: Game, tw: Tower, amount: number) {
-  if (tw.level >= MAX_LEVEL) return;
-  tw.xp += amount * 0.15 * metaXp();
-  while (tw.level < MAX_LEVEL && tw.xp >= xpNeed(tw.level)) {
-    // Levelling pauses at the branch level until the player picks a branch.
-    if (needsBranch(tw)) { tw.xp = xpNeed(BRANCH_LEVEL); return; }
-    tw.xp -= xpNeed(tw.level);
-    levelUp(g, tw);
-  }
-}
+/** Gold price of the next level. */
+export const upgradeCost = (tw: Tower) => Math.round(TOWERS[tw.type].cost * 0.8 * tw.level * metaDiscount());
+export const canUpgrade = (g: Game, tw: Tower) => tw.level < MAX_LEVEL && g.gold >= upgradeCost(tw);
 
 function levelUp(g: Game, tw: Tower) {
+  const cost = upgradeCost(tw);
+  g.gold -= cost;
+  tw.invested += cost;
   tw.level++;
   tw.flash = 1;
   sfx.level();
   const color = TOWERS[tw.type].color;
   floatText(g, tw.x, tw.y - 30, tw.level === NAMED_LEVEL ? `${nickname(tw)}!` : L().fx.level(tw.level), color, 1.4, 15);
-  burst(g, tw.x, tw.y, color, 18);
+  burst(g, tw.x, tw.y, color, tw.level === NAMED_LEVEL ? 30 : 18);
   g.hooks.towerChanged(tw);
 }
 
-export const trainCost = (tw: Tower) => Math.round(TOWERS[tw.type].cost * 0.55 * tw.level);
-export const canTrain = (g: Game, tw: Tower) => tw.level < MAX_LEVEL && !needsBranch(tw) && g.gold >= trainCost(tw);
+export function upgrade(g: Game, tw: Tower) {
+  if (needsBranch(tw) || !canUpgrade(g, tw)) return;
+  levelUp(g, tw);
+}
 
-export function train(g: Game, tw: Tower) {
-  if (!canTrain(g, tw)) return;
-  const c = trainCost(tw);
-  g.gold -= c;
-  tw.invested += c;
-  tw.xp = 0;
+/** The branch choice is itself the upgrade from level 3 to 4. */
+export function chooseBranch(g: Game, tw: Tower, b: 0 | 1) {
+  if (!needsBranch(tw) || !canUpgrade(g, tw)) return;
+  tw.branch = b;
   levelUp(g, tw);
 }
 
@@ -92,13 +88,4 @@ export function sell(g: Game, tw: Tower) {
   g.towers = g.towers.filter((t) => t !== tw);
   burst(g, tw.x, tw.y, '#888', 8);
   if (g.selected === tw) g.selected = null;
-}
-
-export function chooseBranch(g: Game, tw: Tower, b: 0 | 1) {
-  tw.branch = b;
-  tw.flash = 1;
-  sfx.level();
-  burst(g, tw.x, tw.y, TOWERS[tw.type].color, 24);
-  giveXp(g, tw, 0);
-  g.hooks.towerChanged(tw);
 }

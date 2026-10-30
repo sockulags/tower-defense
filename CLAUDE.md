@@ -19,7 +19,9 @@ Browser tower defense game, built with Vite and TypeScript and drawn with Canvas
 ## Planning
 
 - Order agreed with the user: make the core loop fun first (game feel, meaningful decisions, balance). Then add breadth (maps, towers, the build-your-own-road mode). Head-to-head comes last: local same-screen first, then against AI, then online.
-- Levelling happens both inside a run (towers) and between runs (watch level and stardust).
+- Levelling happens both inside a run and between runs. Inside a run, towers level up only when the player pays gold. There is no automatic XP; the user explicitly rejected it. The branch choice at level 3 is itself the paid upgrade to level 4. Between runs, the player has a watch level and stardust upgrades.
+- Tower light is mood only. Keep it a small glow around the tower, never a wash over the whole range, and keep enemies drawn above the darkness so they stay readable.
+- Visual direction (sprites, meshes, a livelier tone) comes after the in-game gameplay pass, at the user's request.
 
 ## Publishing
 
