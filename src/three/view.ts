@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
@@ -44,9 +45,8 @@ function makePoolTexture() {
 export class GameView {
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(36, 16 / 10, 0.1, 100);
-  private cameraBase = new THREE.Vector3(0, 15.4, 10.9);
-  private cameraTarget = new THREE.Vector3(0, 0, 0.7);
+  private camera = new THREE.PerspectiveCamera(30, 16 / 10, 0.1, 100);
+  private controls: OrbitControls;
   private composer: EffectComposer;
   private bloom: UnrealBloomPass;
   private overlay: CanvasRenderingContext2D;
@@ -73,6 +73,17 @@ export class GameView {
   private fireflySeeds: { x: number; z: number; p: number; s: number }[] = [];
 
   private hoverTile: THREE.Mesh;
+  /** Tile lines, shown only while placing a tower so the board otherwise looks like open ground. */
+  private buildGrid = (() => {
+    const pts: number[] = [];
+    for (let x = 0; x <= COLS; x++) pts.push(x - COLS / 2, 0.01, -ROWS / 2, x - COLS / 2, 0.01, ROWS / 2);
+    for (let z = 0; z <= ROWS; z++) pts.push(-COLS / 2, 0.01, z - ROWS / 2, COLS / 2, 0.01, z - ROWS / 2);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    const grid = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: '#c9d6c4', transparent: true, opacity: 0.12, depthWrite: false }));
+    grid.visible = false;
+    return grid;
+  })();
   private buildRing: THREE.Mesh;
   private selectRing: THREE.Mesh;
   private ghost: { type: TowerType; obj: THREE.Group } | null = null;
@@ -104,8 +115,21 @@ export class GameView {
     this.scene.add(moon);
     this.scene.add(this.heartLight);
 
-    this.camera.position.copy(this.cameraBase);
-    this.camera.lookAt(this.cameraTarget);
+    // Right or middle drag turns the view, the wheel zooms; left click stays free for building.
+    // Limits keep the board readable: no panning, a modest turn and a mostly top-down tilt.
+    this.controls = new OrbitControls(this.camera, canvas);
+    this.controls.enablePan = false;
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.12;
+    this.controls.minPolarAngle = 0.1;
+    this.controls.maxPolarAngle = 0.95;
+    this.controls.minAzimuthAngle = -0.75;
+    this.controls.maxAzimuthAngle = 0.75;
+    this.controls.minDistance = 13;
+    this.controls.maxDistance = 30;
+    this.controls.mouseButtons = { LEFT: null as unknown as THREE.MOUSE, MIDDLE: THREE.MOUSE.ROTATE, RIGHT: THREE.MOUSE.ROTATE };
+    this.controls.touches = { ONE: null as unknown as THREE.TOUCH, TWO: THREE.TOUCH.DOLLY_ROTATE };
+    this.resetCamera();
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
@@ -145,13 +169,20 @@ export class GameView {
     this.hoverTile.position.y = 0.01;
     this.buildRing = this.makeRangeRing();
     this.selectRing = this.makeRangeRing();
-    this.scene.add(this.hoverTile, this.buildRing, this.selectRing);
+    this.scene.add(this.hoverTile, this.buildRing, this.selectRing, this.buildGrid);
 
     new ResizeObserver(() => this.resize()).observe(canvas);
     this.resize();
   }
 
   private rangeGeo = new THREE.RingGeometry(0.975, 1, 72);
+
+  /** The default view: close to top-down, turned straight at the board. */
+  resetCamera() {
+    this.controls.target.set(0, 0, 0.35);
+    this.camera.position.setFromSphericalCoords(24.5, 0.42, 0).add(this.controls.target);
+    this.controls.update();
+  }
 
   private makeRangeRing() {
     // Kept dim so the bloom pass leaves it a thin line.
@@ -225,13 +256,10 @@ export class GameView {
     this.updateCursor(g);
     this.animateWorld(g, time);
 
+    this.controls.update();
+    // Shake the world rather than the camera so it never fights the camera controls.
     const shake = g.shake * 0.25;
-    this.camera.position.set(
-      this.cameraBase.x + (Math.random() - 0.5) * shake,
-      this.cameraBase.y + (Math.random() - 0.5) * shake,
-      this.cameraBase.z,
-    );
-    this.camera.lookAt(this.cameraTarget);
+    this.scene.position.set((Math.random() - 0.5) * shake, 0, (Math.random() - 0.5) * shake);
     this.composer.render();
     this.drawOverlay(g);
   }
@@ -371,7 +399,7 @@ export class GameView {
       const a = Math.max(0, f.life / f.max);
       if (f.k === 'p' && pc < MAX_PARTICLES) {
         this.pPos.set([wx(f.x), 0.3 + (1 - a) * 0.7, wz(f.y)], pc * 3);
-        col.set(f.color).multiplyScalar(a * 1.6);
+        col.set(f.color).multiplyScalar(a * 0.9);
         this.pCol.set([col.r, col.g, col.b], pc * 3);
         pc++;
       } else if (f.k === 'ring') {
@@ -388,7 +416,8 @@ export class GameView {
         const r = (f.r0 + (f.r1 - f.r0) * (1 - a)) / T;
         m.scale.setScalar(Math.max(0.01, r));
         m.position.set(wx(f.x), 0.06, wz(f.y));
-        (m.material as THREE.MeshBasicMaterial).opacity = a * 0.9;
+        // Kept faint: bright additive rings trip the bloom pass and flash the whole board.
+        (m.material as THREE.MeshBasicMaterial).opacity = a * 0.35;
       } else if (f.k === 'line' && lc < 400) {
         lpos.setXYZ(lc * 2, wx(f.x), 0.4, wz(f.y));
         lpos.setXYZ(lc * 2 + 1, wx(f.x2), 0.4, wz(f.y2));
@@ -427,6 +456,7 @@ export class GameView {
   }
 
   private updateCursor(g: Game) {
+    this.buildGrid.visible = !!g.build;
     const hover = g.build && g.hover && g.hover.tx >= 0 && g.hover.ty >= 0 && g.hover.tx < COLS && g.hover.ty < ROWS ? g.hover : null;
     this.setGhost(hover ? g.build : null);
     if (hover && g.build) {

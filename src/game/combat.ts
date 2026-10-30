@@ -79,7 +79,6 @@ export function impact(g: Game, sh: Shot) {
     }
     g.fx.push({ k: 'ring', x: sh.tx, y: sh.ty, r0: 4, r1: R, life: 0.4, max: 0.4, color: sh.color });
     burst(g, sh.tx, sh.ty, sh.color, 14);
-    g.shake = Math.max(g.shake, 0.12);
     sfx.boom();
     if (sh.s.shards) {
       const near = inRange(g, sh.tx, sh.ty, T * 2.2);

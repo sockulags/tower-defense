@@ -44,7 +44,8 @@ export const en = {
     soundOff: 'Sound off',
     giveUp: 'Give up',
     sure: 'Sure? Click again',
-    keys: 'Keys: 1–4 pick a tower, space starts a wave, Esc cancels.',
+    resetView: 'Reset view',
+    keys: 'Keys: 1–4 pick a tower, space starts a wave, Esc cancels. Right-drag turns the view and the scroll wheel zooms.',
   },
 
   info: {

@@ -16,7 +16,9 @@ Browser tower defense game, built with Vite and TypeScript. The game board is re
 - The game has a single dark look on purpose. UI colors come from the tokens in `src/style.css`; 3D colors come from `C` in `src/three/models.ts`.
 - All 3D models are built in code from low-poly primitives in `src/three/models.ts`, which must stay free of DOM access so `npm run export-models` can run it in Node. The user chose code-built models over ArtCraft's AI generation and the Codex ArtCraft MCP prototype.
 - `src/three/view.ts` maps simulation pixels to world units (one tile = one unit, board centred on the origin) and keeps one 3D object per tower, enemy and shot in sync each frame. The simulation never imports from `src/three/`.
-- Anything glowing uses `glow()` with intensity above 1 so the bloom pass picks it up; keep UI helpers such as range rings dim so they do not bloom.
+- Anything glowing uses `glow()` with intensity above 1 so the bloom pass picks it up; keep UI helpers such as range rings and effect rings dim so they do not bloom. Bright additive flashes made the whole board blink, which the user disliked; avoid screen shake on routine hits.
+- The look should be soft, not blocky: one smooth terrain mesh with the road painted in along a rounded curve, a rounded island, smooth shading by default (`flat` only for rocks and ice), and the tile grid shown only while placing a tower.
+- Camera: close to top-down by default. The player may turn (right or middle drag) and zoom (wheel) within the limits set in `GameView`; there is no panning, and Reset view returns to the default.
 - `npm run export-models` writes every model to `exports/models/*.glb` (gitignored) so the user can view them in ArtCraft via 3D Stage > Upload 3D Model.
 - `GAME_TITLE` in `src/config.ts` is a working title until the project gets a real name.
 

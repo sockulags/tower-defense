@@ -46,7 +46,8 @@ export const sv: Strings = {
     soundOff: 'Ljud av',
     giveUp: 'Ge upp',
     sure: 'Säker? Klicka igen',
-    keys: 'Tangenter: 1–4 väljer torn, mellanslag startar våg, Esc avbryter.',
+    resetView: 'Återställ vy',
+    keys: 'Tangenter: 1–4 väljer torn, mellanslag startar våg, Esc avbryter. Dra med höger musknapp för att vrida vyn och scrolla för att zooma.',
   },
 
   info: {

@@ -62,6 +62,7 @@ function applyStaticText() {
   $('bPause').textContent = s.pause;
   $('bMute').textContent = isMuted() ? s.soundOff : s.soundOn;
   $('bQuit').textContent = s.giveUp;
+  $('bCam').textContent = s.resetView;
   $('keys').textContent = s.keys;
 }
 
@@ -212,6 +213,7 @@ document.addEventListener('keydown', (ev) => {
 });
 
 $('bWave').onclick = () => { initAudio(); if (game) startWave(game); };
+$('bCam').onclick = () => view.resetCamera();
 $('bAuto').onclick = () => {
   if (!game) return;
   game.auto = !game.auto;
