@@ -29,10 +29,10 @@ export function startWave(g: Game) {
   if (g.active || g.over) return;
   g.wave++;
   g.active = true;
-  g.queue = makeWave(g.wave);
+  g.queue = makeWave(g.map, g.wave);
   g.spawnT = 0.3;
   sfx.wave();
-  floatText(g, W / 2, 40, isGiantWave(g.wave) ? L().fx.giantWave(g.wave) : L().fx.wave(g.wave), '#ffb547', 1.8, 22);
+  floatText(g, W / 2, 40, isGiantWave(g.map, g.wave) ? L().fx.giantWave(g.wave) : L().fx.wave(g.wave), '#ffb547', 1.8, 22);
 }
 
 /** Adds an enemy at the road's start, or `d` pixels along it, scaled for the current wave. */
@@ -44,6 +44,7 @@ export function spawnEnemy(g: Game, type: EnemyType, d = 0): Enemy {
     type, def, hp, maxHp: hp, reward: Math.round(def.reward * (1 + 0.02 * g.wave)), d, x: p.x, y: p.y,
     slowUntil: 0, slowAmt: 0, stun: 0, burnUntil: 0, burnDps: 0, burnSrc: null, lastHit: -9,
     seed: Math.random() * 6.28, dead: false,
+    armour: (def.armour ?? 0) * (1 + 0.02 * (Math.max(1, g.wave) - 1)), dashing: false, mending: !!def.regen,
   };
   g.enemies.push(e);
   return e;
@@ -70,12 +71,18 @@ export function update(g: Game, dt: number) {
 
   for (const e of g.enemies) {
     if (e.dead) continue;
-    if (e.burnUntil > g.t) damage(g, e, e.burnDps * dt, e.burnSrc);
+    if (e.burnUntil > g.t) damage(g, e, e.burnDps * dt, e.burnSrc, true);
     if (e.dead) continue;
-    if (e.def.regen && g.t - e.lastHit > 1) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * e.def.regen * dt);
-    let sp = e.pinned ? 0 : e.def.speed;
-    if (e.stun > g.t) sp = 0;
-    else if (e.slowUntil > g.t) sp *= 1 - e.slowAmt;
+    const frozen = e.stun > g.t, chilled = e.slowUntil > g.t;
+    // Shadow traits: menders heal unless burning or frozen (half as fast while chilled).
+    e.mending = !!e.def.regen && e.burnUntil <= g.t && !frozen;
+    if (e.mending && e.hp < e.maxHp) e.hp = Math.min(e.maxHp, e.hp + e.maxHp * e.def.regen! * (chilled ? 0.5 : 1) * dt);
+    // Sprinters run in bursts unless chilled or frozen.
+    const sprint = e.def.sprint;
+    e.dashing = !!sprint && !frozen && !chilled && (g.t + e.seed) % sprint.every < sprint.dur;
+    let sp = e.pinned ? 0 : e.def.speed * (e.dashing ? sprint!.mult : 1);
+    if (frozen) sp = 0;
+    else if (chilled) sp *= 1 - e.slowAmt;
     e.d += sp * T * dt;
     if (e.d >= g.path.len) {
       e.dead = true;
@@ -100,7 +107,13 @@ export function update(g: Game, dt: number) {
     else { sh.x += (dx / dist) * step; sh.y += (dy / dist) * step; }
   }
   g.shots = g.shots.filter((s) => !s.done);
+  // Shadow traits: splitters that were killed (not leaked) break into smaller shadows where they fell.
+  const splits = g.enemies.filter((e) => e.dead && e.hp <= 0 && e.def.split);
   g.enemies = g.enemies.filter((e) => !e.dead);
+  for (const e of splits) {
+    const { type, count } = e.def.split!;
+    for (let i = 0; i < count; i++) spawnEnemy(g, type, Math.max(0, e.d + (i - (count - 1) / 2) * T * 0.3));
+  }
   updateFx(g, dt);
 
   if (g.lives <= 0 && !g.over) { g.lives = 0; finish(g, false); return; }

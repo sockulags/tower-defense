@@ -28,7 +28,8 @@ try {
     models[`tower-${type}-level6-branch-a`] = m.makeTower(type, 6, 0);
     models[`tower-${type}-level6-branch-b`] = m.makeTower(type, 6, 1);
   }
-  for (const type of ['crawler', 'flitter', 'lump', 'shimmer', 'giant']) models[`enemy-${type}`] = m.makeEnemy(type);
+  const { ENEMY_ORDER } = await server.ssrLoadModule('/src/data/enemies.ts');
+  for (const type of ENEMY_ORDER) models[`enemy-${type}`] = m.makeEnemy(type);
   models['warden-default'] = m.makeHero({ weapon: 'staff', charm: 'none', hat: 'hood', cloak: 'moss' });
   models['warden-bell-wizard'] = m.makeHero({ weapon: 'bell', charm: 'badge', hat: 'wizard', cloak: 'midnight' });
   models['warden-sling-tricorn'] = m.makeHero({ weapon: 'sling', charm: 'jar', hat: 'tricorn', cloak: 'crimson' });

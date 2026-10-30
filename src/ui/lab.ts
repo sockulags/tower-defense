@@ -6,7 +6,7 @@
 // - Balance: bot players (src/game/bots.ts) play whole runs headless and a table shows win rate,
 //   lives lost, gold earned and each tower's and the Warden's share of damage and kills.
 import { T } from '../config';
-import { ENEMIES } from '../data/enemies';
+import { ENEMIES, ENEMY_ORDER } from '../data/enemies';
 import { CHARMS, CLOAKS, HATS, WEAPONS, type Loadout } from '../data/hero';
 import { MAP_ORDER } from '../data/maps';
 import { TOWERS, TOWER_ORDER } from '../data/towers';
@@ -18,6 +18,7 @@ import { hpMultiplier } from '../game/waves';
 import { setQuiet } from '../audio';
 import { L, fmt } from '../i18n';
 import { $ } from './dom';
+import { towerAttrIcons, traitBadges } from './traits';
 import { nav } from './nav';
 import { adopt, currentGame, currentView, renderBelt, setFrameHook, startRun } from './play';
 import type { Branch, EnemyType, Game, MapId, Tower } from '../types';
@@ -56,9 +57,8 @@ const bal = {
   timer: 0,
 };
 
-const ENEMY_ORDER = Object.keys(ENEMIES) as EnemyType[];
-/** Gallery layout on Ring Rampart, whose first stretch of road is long and straight. */
-const ENEMY_D = [2.4, 4.6, 6.8, 9, 11.2];
+/** Gallery layout on Ring Rampart, whose first stretch of road is long and straight: one spot per shadow, the giant last. */
+const ENEMY_D = [1.9, 3.4, 4.9, 6.4, 7.9, 9.3, 10.6, 12.6];
 const TOWER_X = [1.2, 3.6, 6, 8.4];
 const HERO_X = 10.8;
 /** Between the first stretch of road (row 1) and the inner loop (row 4). */
@@ -175,13 +175,13 @@ function galleryHtml() {
   const s = L(), lab = s.lab, c = lab.col, g = currentGame()!;
   const towerRows = g.towers.map((t) => {
     const st = stats(t), name = t.branch !== null ? s.towers[t.type].branches[t.branch].name : s.towers[t.type].name;
-    return row([name, st.dmg.toFixed(1), st.range.toFixed(1), (1 / st.rate).toFixed(2), ((st.dmg / st.rate) * st.targets).toFixed(1)]);
+    return row([name, st.dmg.toFixed(1), st.range.toFixed(1), (1 / st.rate).toFixed(2), ((st.dmg / st.rate) * st.targets).toFixed(1), towerAttrIcons(t.type, t.branch)]);
   }).join('');
   const h = g.hero, hs = h ? heroStats(h) : null;
   const heroRow = h && hs ? row([s.hero.name, hs.dmg.toFixed(1), hs.range.toFixed(1), (1 / hs.rate).toFixed(2), (hs.dmg / hs.rate).toFixed(1)]) : '';
   const enemyRows = ENEMY_ORDER.map((type) => {
     const d = ENEMIES[type];
-    return row([s.enemies[type], Math.round(d.hp * hpMultiplier(g.map, opts.strength)), d.speed.toFixed(2), Math.round(d.reward * (1 + 0.02 * opts.strength)), d.leak]);
+    return row([s.enemies[type], Math.round(d.hp * hpMultiplier(g.map, opts.strength)), d.speed.toFixed(2), Math.round(d.reward * (1 + 0.02 * opts.strength)), d.leak, `<span class="attrs">${traitBadges(d.traits)}</span>`]);
   }).join('');
   const sel = (id: string, values: Record<string, unknown>, cur: string, names: Record<string, string>) =>
     `<select id="${id}">${Object.keys(values).map((k) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${names[k]}</option>`).join('')}</select>`;
@@ -192,7 +192,7 @@ function galleryHtml() {
       <div class="labrow"><span>${lab.level}</span>${[1, 2, 3, 4, 5, 6].map((n) => `<button class="chip ${opts.level === n ? 'on' : ''}" data-level="${n}">${n}</button>`).join('')}</div>
       <div class="labrow"><span>${lab.branch}</span>${[0, 1].map((b) => `<button class="chip ${opts.branch === b ? 'on' : ''}" data-branch="${b}">${b ? 'B' : 'A'}</button>`).join('')}</div>
       <div class="labrow">${TOWER_ORDER.map((t, i) => `<button class="go small" data-fire="${i}">${lab.fire}: ${s.towers[t].name}</button>`).join('')}</div>
-      <table>${row([c.name, c.dmg, c.range, c.rate, c.dps], true)}${towerRows}${heroRow}</table>
+      <table>${row([c.name, c.dmg, c.range, c.rate, c.dps, s.traits.labHits], true)}${towerRows}${heroRow}</table>
     </section>
     <section>
       <h3>${lab.warden}</h3>
@@ -210,7 +210,7 @@ function galleryHtml() {
       ${ENEMY_ORDER.map((type, i) => `<div class="labrow"><b class="ename">${s.enemies[type]}</b><button class="chip" data-hit="${i}">${lab.hit}</button><button class="chip" data-kill="${i}">${lab.kill}</button></div>`).join('')}
       <div class="labrow"><button class="go small" id="lRespawn">${lab.respawn}</button></div>
       <div class="labrow"><span>${lab.statuses}</span>${toggle('sSlow', lab.slow, opts.slow)}${toggle('sBurn', lab.burn, opts.burn)}${toggle('sStun', lab.stun, opts.stun)}</div>
-      <table>${row([c.name, c.hp, c.speed, c.gold, c.leak], true)}${enemyRows}</table>
+      <table>${row([c.name, c.hp, c.speed, c.gold, c.leak, s.traits.labTraits], true)}${enemyRows}</table>
     </section>
     <section><div class="labrow">${toggle('lLive', lab.live, opts.live)}</div></section>`;
 }

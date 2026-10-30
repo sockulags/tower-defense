@@ -92,7 +92,7 @@ export function castAbility(g: Game): boolean {
   h.abilityCd = s.cooldown;
   h.castAt = g.t;
   h.flash = 1;
-  sfx.boom();
+  sfx.cast(h.loadout.weapon);
   return true;
 }
 
@@ -118,7 +118,7 @@ export function updateHero(g: Game, dt: number) {
       if (s.burn) { e.burnUntil = g.t + 3; e.burnDps = Math.max(e.burnDps, s.burn); e.burnSrc = h; }
     }
     g.fx.push({ k: 'ring', x: h.x, y: h.y, r0: 8, r1: s.range * T, life: 0.4, max: 0.4, color: w.color });
-    sfx.pulse();
+    sfx.weapon(h.loadout.weapon);
     return;
   }
   const e = targets[0];
@@ -126,7 +126,7 @@ export function updateHero(g: Game, dt: number) {
     x: h.x + Math.cos(h.angle) * T * 0.2, y: h.y + Math.sin(h.angle) * T * 0.2, target: e, tx: e.x, ty: e.y,
     speed: (w.kind === 'shot' ? 16 : 12) * T, dmg: s.dmg, src: h, look: 'hero', s, kind: 'shot', color: w.color,
   });
-  sfx.shot();
+  sfx.weapon(h.loadout.weapon);
 }
 
 /** How far the Warden reaches, in simulation pixels; used by the Firefly Jar charm. */

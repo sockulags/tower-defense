@@ -1,12 +1,33 @@
 import type { Loadout, TalentId } from './data/hero';
 
 export type TowerType = 'spark' | 'frost' | 'pulse' | 'star';
-export type EnemyType = 'crawler' | 'flitter' | 'lump' | 'shimmer' | 'giant';
+export type EnemyType = 'crawler' | 'flitter' | 'lump' | 'shimmer' | 'splitter' | 'speck' | 'dasher' | 'giant';
 export type MapId = 'mill' | 'marsh' | 'ring';
+
+// ---------- shadow traits and tower attributes ----------
+
+/** Something a shadow is or does that some towers answer better than others. Add new ones here. */
+export type Trait = 'flying' | 'armoured' | 'mends' | 'splits' | 'sprints';
+
+export interface TowerAttrs {
+  /** Can hit flying shadows. */
+  air: boolean;
+  /** Can hit shadows on the ground. */
+  ground: boolean;
+  /** Extra damage against shadows with a trait, e.g. { armoured: 0.5 } for +50 %. */
+  bonus: Partial<Record<Trait, number>>;
+}
+
+/** One group in a wave: this many shadows of a type, spawned this many seconds apart. */
+export type WaveGroup = [type: EnemyType, count: number, gap: number];
+export type WaveSpec = WaveGroup[];
+// ---------- end shadow traits and tower attributes ----------
 
 export interface MapDef {
   id: MapId;
   waves: number;
+  /** The wave list, played in order; a survival map repeats it with more shadows each round. */
+  waveList: WaveSpec[];
   hard: number;
   seed: number;
   survival?: boolean;
@@ -27,6 +48,10 @@ export interface TowerDef {
   splash?: number;
   /** Watch level required to build it. */
   unlock?: number;
+  /** What it can hit and what it is strong against. */
+  attrs: TowerAttrs;
+  /** Changes each branch makes to `attrs`. */
+  branchAttrs?: [Partial<TowerAttrs> | null, Partial<TowerAttrs> | null];
 }
 
 export interface EnemyDef {
@@ -37,7 +62,16 @@ export interface EnemyDef {
   r: number;
   color: string;
   eye: string;
+  /** What this shadow is; the fields below tune each trait. */
+  traits: Trait[];
+  /** mends: share of max health regained per second while neither burning nor frozen. */
   regen?: number;
+  /** armoured: flat damage blocked per hit, growing a little with the wave. */
+  armour?: number;
+  /** splits: what it breaks into when it dies. */
+  split?: { type: EnemyType; count: number };
+  /** sprints: speed multiplier during a burst, burst length and time between bursts in seconds. */
+  sprint?: { mult: number; dur: number; every: number };
 }
 
 export interface Pt { x: number; y: number }
@@ -105,6 +139,10 @@ export interface Enemy {
   dead: boolean;
   /** Developer lab only: holds the enemy in place. */
   pinned?: boolean;
+  /** Shadow traits: armour per hit at this wave, and whether it is sprinting or mending right now. */
+  armour: number;
+  dashing: boolean;
+  mending: boolean;
 }
 
 export interface Stats {
@@ -120,6 +158,8 @@ export interface Stats {
   burn?: number;
   stun?: number;
   shards?: number;
+  /** What the source can hit and its trait bonuses; absent means it hits everything (the Warden). */
+  attrs?: TowerAttrs;
 }
 
 export interface Shot {

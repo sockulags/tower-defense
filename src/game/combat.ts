@@ -4,11 +4,23 @@ import { sfx } from '../audio';
 import { burst, floatText } from './fx';
 import { JAR_GOLD } from '../data/hero';
 import { heroReach } from './hero';
-import { stats } from './towers';
-import type { Enemy, Game, Shot, Source, Stats, Tower } from '../types';
+import { canHit, stats, towerAttrs, traitBonus } from './towers';
+import type { Enemy, Game, Shot, Source, Stats, Tower, TowerAttrs } from '../types';
 
-export function damage(g: Game, e: Enemy, amount: number, src: Source | null) {
+/** Smallest share of a hit that gets through armour. */
+const ARMOUR_FLOOR = 0.25;
+
+/**
+ * Deals damage from a source. A direct hit (not `dot`, which is burning) gains the source's trait
+ * bonuses and then loses the shadow's armour, but always keeps a quarter of the hit.
+ */
+export function damage(g: Game, e: Enemy, amount: number, src: Source | null, dot = false) {
   if (e.dead) return;
+  // Shadow traits: trait bonuses and armour.
+  if (!dot) {
+    if (src && !('isHero' in src)) amount *= traitBonus(towerAttrs(src.type, src.branch), e);
+    if (e.armour) amount = Math.max(amount * ARMOUR_FLOOR, amount - e.armour);
+  }
   const real = Math.min(e.hp, amount);
   e.hp -= amount;
   e.lastHit = g.t;
@@ -25,7 +37,7 @@ export function damage(g: Game, e: Enemy, amount: number, src: Source | null) {
       floatText(g, e.x, e.y - 16, `+${JAR_GOLD}`, '#d8ff9a', 0.9, 13);
     }
     burst(g, e.x, e.y, e.def.color, e.type === 'giant' ? 40 : 10);
-    sfx.kill();
+    sfx.kill(e.type === 'giant');
     if (e.type === 'giant') {
       g.shake = 0.5;
       floatText(g, e.x, e.y - 20, `+${e.reward}`, '#ffb547', 1.4, 18);
@@ -33,8 +45,9 @@ export function damage(g: Game, e: Enemy, amount: number, src: Source | null) {
   }
 }
 
-export const inRange = (g: Game, x: number, y: number, r: number) =>
-  g.enemies.filter((e) => !e.dead && Math.hypot(e.x - x, e.y - y) <= r);
+/** Live shadows within `r` pixels; with `attrs`, only those the source can hit (flyers need `air`). */
+export const inRange = (g: Game, x: number, y: number, r: number, attrs?: TowerAttrs) =>
+  g.enemies.filter((e) => !e.dead && Math.hypot(e.x - x, e.y - y) <= r && canHit(attrs, e));
 
 export function applySlow(g: Game, e: Enemy, s: Stats) {
   const stillSlowed = e.slowUntil > g.t;
@@ -50,8 +63,8 @@ export function updateTower(g: Game, t: Tower, dt: number) {
   t.cd -= dt;
   if (t.cd > 0) return;
   const s = stats(t), r = s.range * T, d = TOWERS[t.type];
-  // Target whoever is furthest along the road.
-  const targets = inRange(g, t.x, t.y, r).sort((a, b) => b.d - a.d);
+  // Target whoever is furthest along the road, among the shadows this tower can hit.
+  const targets = inRange(g, t.x, t.y, r, s.attrs).sort((a, b) => b.d - a.d);
   if (!targets.length) return;
   t.cd = s.rate;
 
@@ -63,7 +76,7 @@ export function updateTower(g: Game, t: Tower, dt: number) {
       if (s.slow) applySlow(g, e, s);
     }
     g.fx.push({ k: 'ring', x: t.x, y: t.y, r0: T * 0.3, r1: r, life: 0.45, max: 0.45, color: d.color });
-    sfx.pulse();
+    sfx.fire(t.type);
     return;
   }
 
@@ -75,21 +88,21 @@ export function updateTower(g: Game, t: Tower, dt: number) {
       kind: d.kind === 'shell' ? 'shell' : 'shot', color: d.color,
     });
   }
-  if (d.kind === 'shell') sfx.shell(); else sfx.shot();
+  sfx.fire(t.type);
 }
 
 export function impact(g: Game, sh: Shot) {
   if (sh.kind === 'shell') {
     const R = sh.s.splash * T;
-    for (const e of inRange(g, sh.tx, sh.ty, R)) {
+    for (const e of inRange(g, sh.tx, sh.ty, R, sh.s.attrs)) {
       const falloff = 1 - 0.5 * Math.hypot(e.x - sh.tx, e.y - sh.ty) / R;
       damage(g, e, sh.dmg * falloff, sh.src);
     }
     g.fx.push({ k: 'ring', x: sh.tx, y: sh.ty, r0: 4, r1: R, life: 0.4, max: 0.4, color: sh.color });
     burst(g, sh.tx, sh.ty, sh.color, 14);
-    sfx.boom();
+    sfx.thud();
     if (sh.s.shards) {
-      const near = inRange(g, sh.tx, sh.ty, T * 2.2);
+      const near = inRange(g, sh.tx, sh.ty, T * 2.2, sh.s.attrs);
       for (let i = 0; i < sh.s.shards && near.length; i++) {
         const e = near[Math.floor(Math.random() * near.length)];
         damage(g, e, sh.dmg * 0.35, sh.src);

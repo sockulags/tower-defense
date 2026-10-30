@@ -30,6 +30,7 @@ export const C = {
   inkCrawler: '#7b4bc4', inkCrawlerBelly: '#a985e6', inkFlitter: '#2c8f8c', wing: '#3fd6c2',
   inkLump: '#93406f', bone: '#e2d4b6', inkVeil: '#5f86e8', inkGiant: '#3d2266', horn: '#2a1838',
   eye: '#f2ff7a', eyeHot: '#ff4a4a', mouth: '#ff4f8b', pupil: '#120a1c',
+  inkBlot: '#6a3a9e', inkBlotBud: '#9c6ad8', inkDasher: '#b03f86', inkDasherBelly: '#e48cc2',
 };
 
 // ---------- materials ----------
@@ -792,7 +793,75 @@ const giant: EnemyBuilder = (body, r) => {
   for (let k = 0; k < 4; k++) mesh(cone(r * 0.04, r * 0.12, 6), toon(C.bone), body, r * 1.0, -r * 0.13, (k - 1.5) * r * 0.13).rotation.z = Math.PI;
 };
 
-const ENEMY_BUILDERS: Record<EnemyType, EnemyBuilder> = { crawler, flitter, lump, shimmer, giant };
+/**
+ * Inkblot: a wobbling ink blob with three smaller blobs clinging to it, the Droplets it bursts
+ * into. The clinging blobs sit in 'buds', which the view jiggles.
+ */
+const splitter: EnemyBuilder = (body, r) => {
+  mesh(sph(r, 22, 16), toon(C.inkBlot), body, 0, 0, 0, 'skin').scale.set(1.05, 0.92, 1.05);
+  // A drip running down the back and a wavy cap of ink on top.
+  mesh(sph(r * 0.32, 12, 10), toon(C.inkBlot), body, -r * 0.55, r * 0.68, 0).scale.set(1, 0.7, 1);
+  mesh(sph(r * 0.2, 10, 8), toon(C.inkBlot), body, -r * 0.2, r * 0.95, r * 0.15);
+  const buds = group(body, 'buds');
+  for (let i = 0; i < 3; i++) {
+    const a = Math.PI * 0.85 + (i - 1) * 0.95;
+    const bud = group(buds, '', Math.cos(a) * r * 0.82, -r * 0.18 + (i === 1 ? r * 0.25 : 0), Math.sin(a) * r * 0.82);
+    mesh(sph(r * 0.36, 14, 10), toon(C.inkBlotBud), bud);
+    // Each Droplet-to-be already peeks out with one sleepy eye.
+    const ex = Math.cos(a) * r * 0.3, ez = Math.sin(a) * r * 0.3;
+    mesh(sph(r * 0.09, 8, 6), glow(C.eye, 1.3), bud, ex, r * 0.12, ez);
+    mesh(sph(r * 0.045, 6, 6), toon(C.pupil), bud, ex * 1.25, r * 0.12, ez * 1.25);
+  }
+  eyes(body, r, 0.27, 0.32, 0.4);
+  const grin = mesh(torus(r * 0.26, r * 0.05, Math.PI, 16), glow(C.mouth, 1.2), body, r * 0.9, -r * 0.12, 0);
+  grin.rotation.set(0, Math.PI / 2, Math.PI);
+  const feet = group(body, 'feet');
+  for (const side of [1, -1]) mesh(sph(r * 0.22, 12, 8), toon(C.horn), feet, r * 0.15, -r * 0.86, side * r * 0.42, side > 0 ? 'footL' : 'footR').scale.set(1.4, 0.55, 1);
+};
+
+/** Droplet: a tiny hopping drop of ink, what an Inkblot bursts into. */
+const speck: EnemyBuilder = (body, r) => {
+  // A teardrop: a ball with a pointed tip curling back over the top.
+  mesh(sph(r, 18, 14), toon(C.inkBlotBud), body, 0, 0, 0, 'skin').scale.set(1.05, 0.95, 1);
+  const tip = mesh(cone(r * 0.45, r * 0.9, 12), toon(C.inkBlotBud), body, -r * 0.25, r * 1.05, 0);
+  tip.rotation.z = 0.55;
+  eyes(body, r, 0.34, 0.36, 0.3);
+  const grin = mesh(torus(r * 0.24, r * 0.06, Math.PI, 12), glow(C.mouth, 1.2), body, r * 0.9, -r * 0.25, 0);
+  grin.rotation.set(0, Math.PI / 2, Math.PI);
+  const feet = group(body, 'feet');
+  for (const side of [1, -1]) mesh(sph(r * 0.26, 10, 8), toon(C.horn), feet, r * 0.1, -r * 0.88, side * r * 0.45, side > 0 ? 'footL' : 'footR').scale.set(1.4, 0.6, 1);
+};
+
+/**
+ * Scurrier: a long, low ink runner with swept-back ears and a streaming tail. It crouches between
+ * bursts and stretches out when it sprints. Legs are 'footL'/'footR' (front and back pairs), the
+ * ears are 'armL'/'armR' and flatten when it runs.
+ */
+const dasher: EnemyBuilder = (body, r) => {
+  mesh(capsule(r * 0.72, r * 1.3), toon(C.inkDasher), body, 0, 0, 0, 'skin').rotation.z = Math.PI / 2;
+  mesh(sph(r * 0.6, 14, 10), toon(C.inkDasherBelly), body, r * 0.2, -r * 0.3, 0).scale.set(1.6, 0.6, 0.9);
+  // The head sits forward and a little high so the face reads from above.
+  const head = group(body, '', r * 1.05, r * 0.38, 0);
+  mesh(sph(r * 0.62, 18, 14), toon(C.inkDasher), head).scale.set(1.1, 0.95, 1);
+  mesh(cone(r * 0.22, r * 0.5, 10), toon(C.inkDasher), head, r * 0.62, -r * 0.08, 0).rotation.z = -Math.PI / 2;
+  mesh(sph(r * 0.1, 8, 6), toon(C.pupil), head, r * 0.88, -r * 0.06, 0);
+  eyes(head, r * 0.62, 0.3, 0.38, 0.38);
+  for (const side of [1, -1]) {
+    const ear = group(head, side > 0 ? 'armL' : 'armR', -r * 0.1, r * 0.45, side * r * 0.28);
+    const e = mesh(cone(r * 0.17, r * 0.8, 8), toon(C.horn), ear, -r * 0.2, r * 0.3, 0);
+    e.rotation.z = 0.9;
+  }
+  // A streaming tail of ink with a bright magenta tip.
+  const tail = mesh(cone(r * 0.3, r * 1.3, 10), toon(C.inkDasher), body, -r * 1.55, r * 0.2, 0);
+  tail.rotation.z = Math.PI / 2 + 0.35;
+  mesh(sph(r * 0.16, 10, 8), glow(C.mouth, 1.1), body, -r * 2.15, r * 0.42, 0);
+  for (const [name, x] of [['footL', r * 0.6], ['footR', -r * 0.55]] as const) {
+    const pair = group(body, name, x, -r * 0.55, 0);
+    for (const side of [1, -1]) mesh(capsule(r * 0.13, r * 0.35), toon(C.horn), pair, 0, -r * 0.2, side * r * 0.36);
+  }
+};
+
+const ENEMY_BUILDERS: Record<EnemyType, EnemyBuilder> = { crawler, flitter, lump, shimmer, splitter, speck, dasher, giant };
 
 export function makeEnemy(type: EnemyType): THREE.Group {
   const r = ENEMIES[type].r;
@@ -846,11 +915,14 @@ function weapon(hand: THREE.Object3D, loadout: Loadout) {
     mesh(torus(0.04, 0.01), toon(C.brass), hand, 0, 0.58, 0).rotation.x = Math.PI / 2;
     const l = lantern(hand, color, 0.7);
     l.position.y = 0.72;
+    // Bolts leave from the lantern at the staff's head.
+    group(hand, 'muzzle', 0, 0.72, 0);
   } else if (loadout.weapon === 'bell') {
     mesh(cyl(0.018, 0.018, 0.16, 8), toon(C.wood), hand, 0, 0.06, 0);
     const profile = [[0.01, 0.16], [0.05, 0.15], [0.07, 0.08], [0.09, 0.0], [0.11, -0.02], [0.0, -0.01]].map(([x, y]) => new THREE.Vector2(x, y)).reverse();
     mesh(new THREE.LatheGeometry(profile, 20), toon(C.brass), hand, 0, -0.14, 0);
     mesh(sph(0.025, 8, 6), glow(color, 1.8), hand, 0, -0.17, 0, 'core');
+    group(hand, 'muzzle', 0, -0.17, 0);
   } else {
     mesh(cyl(0.018, 0.02, 0.22, 8), toon(C.wood), hand, 0, 0.08, 0);
     for (const z of [-1, 1]) {
@@ -859,6 +931,8 @@ function weapon(hand: THREE.Object3D, loadout: Loadout) {
     }
     mesh(box(0.012, 0.012, 0.11), toon(C.cloth), hand, 0, 0.3, 0);
     mesh(sph(0.03, 10, 8), gem(color, 0.8), hand, 0.03, 0.3, 0, 'core');
+    // Stones leave from the sling's pouch.
+    group(hand, 'muzzle', 0.03, 0.3, 0);
   }
 }
 
@@ -883,7 +957,7 @@ function charm(body: THREE.Object3D, loadout: Loadout) {
 /**
  * The Warden in a given loadout: a small cloaked figure facing +x on a stone post marker.
  * Named parts for the view: 'aim' turns to the target, 'body' bobs, 'cloak' sways, 'arm' swings
- * on attack and lifts on an ability, 'core' flares.
+ * on attack and lifts on an ability, 'core' flares, and shots leave from the weapon's 'muzzle'.
  */
 export function makeHero(loadout: Loadout): THREE.Group {
   const root = new THREE.Group();

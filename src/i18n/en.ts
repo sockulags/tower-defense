@@ -31,6 +31,10 @@ export const en = {
     giveUp: 'Give up',
     sure: 'Sure? Click again',
     placeHint: (name: string) => `Place the ${name} on the grass. Right-click or Esc to cancel.`,
+    // In-game controls: touch building and the phone note.
+    placeHintTouch: (name: string) => `Tap the grass where the ${name} should stand. Tap its medallion again to cancel.`,
+    confirmPlace: 'Tap the same spot again to build here.',
+    turnPhone: 'Turn your phone sideways to play.',
   },
 
   info: {
@@ -46,6 +50,15 @@ export const en = {
     upgradeTo: (level: number) => `Upgrade to ${level}`,
     maxLevel: 'Max level',
     sell: (value: number) => `Sell +${value}`,
+    // In-game controls: the quick "+" upgrade and branch buttons over a tower.
+    upgradeFor: (level: number, cost: number) => `Upgrade to level ${level} for ${cost} gold`,
+    branchFor: (name: string, cost: number) => `${name} for ${cost} gold`,
+    tapToChoose: 'Tap again to choose',
+    burns: 'Burns',
+    stuns: 'Stuns',
+    freezes: 'Freezes',
+    shards: 'Shards',
+    targets: 'Targets',
   },
 
   fx: {
@@ -286,7 +299,29 @@ export const en = {
   },
   // ---------- end of front door ----------
 
-  enemies: { crawler: 'Inkling', flitter: 'Duskmoth', lump: 'Brute', shimmer: 'Veil', giant: 'Gloom Lord' },
+  // ---------- shadows and shadow traits ----------
+  enemies: { crawler: 'Inkling', flitter: 'Duskmoth', lump: 'Brute', shimmer: 'Veil', splitter: 'Inkblot', speck: 'Droplet', dasher: 'Scurrier', giant: 'Gloom Lord' },
+  traits: {
+    names: { flying: 'Flies', armoured: 'Armoured', mends: 'Mends', splits: 'Splits', sprints: 'Sprints' },
+    desc: {
+      flying: 'Flies over the road. Only towers that hit flyers can reach it.',
+      armoured: 'Armour blocks part of every hit, so big hits do best.',
+      mends: 'Heals quickly unless it is burning or frozen.',
+      splits: 'Bursts into three Droplets when it falls.',
+      sprints: 'Runs in quick bursts unless it is chilled.',
+    },
+    /** What a tower is strong against, as a plural. */
+    against: { flying: 'flyers', armoured: 'armoured shadows', mends: 'menders', splits: 'splitters', sprints: 'sprinters' },
+    hitsAir: 'Hits flyers',
+    noAir: 'Cannot hit flyers',
+    noGround: 'Cannot hit ground shadows',
+    strong: (pct: number, against: string) => `+${pct}% damage against ${against}`,
+    nextWave: (n: number) => `Coming in wave ${n}`,
+    count: (n: number, name: string) => `${n} × ${name}`,
+    labTraits: 'Traits',
+    labHits: 'Hits',
+  },
+  // ---------- end shadows and shadow traits ----------
 
   nicknames: ['Old Sven', 'Little My', 'Bertil', 'Miss Frost', 'Captain Glow', 'Aunt Sparkle', 'Uncle Bo', 'Stina',
     'Watchy', 'Doris', 'Lantern Larry', 'Elsa', 'Old Green', 'Majken', 'Knut'],

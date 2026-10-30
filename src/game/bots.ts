@@ -4,6 +4,7 @@
 // gives the same run. Used by `npm run balance` (scripts/balance.mjs) and the lab's Balance tab.
 import { COLS, MAX_LEVEL, ROWS, T } from '../config';
 import { DEFAULT_LOADOUT, HERO_MAX_LEVEL, WEAPONS, heroUpgradeCost, type Loadout } from '../data/hero';
+import { ENEMY_ORDER } from '../data/enemies';
 import { MAPS } from '../data/maps';
 import { TOWERS, TOWER_ORDER } from '../data/towers';
 import { save } from '../save';
@@ -255,7 +256,7 @@ export function playRun(o: BotOptions): RunResult {
     const lastWave = Number.isFinite(g.map.waves) ? g.map.waves : (o.survivalWaves ?? 40);
     const worthNow = () => g.gold + g.towers.reduce((s, t) => s + t.invested, 0) + (g.hero?.invested ?? 0);
     const worth: number[] = [];
-    const leaks: Record<EnemyType, number> = { crawler: 0, flitter: 0, lump: 0, shimmer: 0, giant: 0 };
+    const leaks = Object.fromEntries(ENEMY_ORDER.map((t) => [t, 0])) as Record<EnemyType, number>;
     let thinkT = 0;
     for (let steps = 0; !ended && steps < 3_000_000; steps++) {
       if (!g.active) {

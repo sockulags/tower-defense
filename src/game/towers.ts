@@ -5,7 +5,7 @@ import { metaDamage, metaDiscount, towerUnlocked } from '../save';
 import { sfx } from '../audio';
 import { burst, floatText } from './fx';
 import { distToPath } from './path';
-import type { Game, Stats, Tower, TowerType } from '../types';
+import type { Branch, Enemy, Game, Stats, Tower, TowerAttrs, TowerType } from '../types';
 
 /** At this level the next upgrade is a choice between two branches. */
 export const BRANCH_LEVEL = 3;
@@ -27,8 +27,38 @@ export function stats(t: Tower): Stats {
   if (t.type === 'frost') { if (b === 0) s.freeze = 0.2; if (b === 1) { s.area = true; s.range *= 1.15; } }
   if (t.type === 'pulse') { if (b === 0) s.burn = s.dmg * 0.7; if (b === 1) { s.rate *= 0.7; s.stun = 0.25; } }
   if (t.type === 'star') { if (b === 0) { s.splash *= 1.6; s.dmg *= 1.4; } if (b === 1) s.shards = 5; }
+  s.attrs = towerAttrs(t.type, b);
   return s;
 }
+
+// ---------- shadow traits and tower attributes ----------
+
+const attrCache = new Map<string, TowerAttrs>();
+
+/** What a tower type (with its branch, if chosen) can hit and which traits it is strong against. */
+export function towerAttrs(type: TowerType, branch: Branch = null): TowerAttrs {
+  const key = `${type}:${branch}`;
+  let a = attrCache.get(key);
+  if (!a) {
+    const d = TOWERS[type], over = branch === null ? null : d.branchAttrs?.[branch] ?? null;
+    a = { ...d.attrs, ...over, bonus: { ...(over?.bonus ?? d.attrs.bonus) } };
+    attrCache.set(key, a);
+  }
+  return a;
+}
+
+/** Whether a source with these attributes can hit this shadow. No attributes hits everything. */
+export const canHit = (a: TowerAttrs | undefined, e: Enemy) =>
+  !a || (e.def.traits.includes('flying') ? a.air : a.ground);
+
+/** Damage multiplier from trait bonuses: the bonuses for each of the shadow's traits add up. */
+export function traitBonus(a: TowerAttrs | undefined, e: Enemy) {
+  if (!a) return 1;
+  let m = 1;
+  for (const tr of e.def.traits) m += a.bonus[tr] ?? 0;
+  return m;
+}
+// ---------- end shadow traits and tower attributes ----------
 
 export const needsBranch = (t: Tower) => t.level === BRANCH_LEVEL && t.branch === null;
 export const nickname = (t: Tower) => { const n = L().nicknames; return n[t.nick % n.length]; };

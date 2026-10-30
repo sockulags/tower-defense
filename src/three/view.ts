@@ -12,7 +12,8 @@ import { buildPath, heartOf } from '../game/path';
 import { C, gem, glow, makeBoard, makeEnemy, makeHeart, makeHero, makePortal, makeTower, tileToWorld } from './models';
 import { BADGE_RADIUS, WEAPONS, type Loadout } from '../data/hero';
 import { heroStats } from '../game/hero';
-import type { Enemy, Fx, Game, MapDef, Path, Shot, Tower, TowerType } from '../types';
+import { ENEMIES } from '../data/enemies';
+import type { Enemy, EnemyType, Fx, Game, MapDef, Path, Shot, Tower, TowerType } from '../types';
 
 const FONT = '"Alegreya Sans", sans-serif';
 /** Camera angle from straight down: steep enough to read the board, shallow enough to see the sides of models. */
@@ -217,6 +218,23 @@ export function towerPortraits(): Record<TowerType, string> {
   return portraitCache;
 }
 
+// In-game controls: how a tower will look after its branch upgrade (level 4), for the branch note.
+const branchPortraitCache = new Map<string, string>();
+
+/** A portrait of a tower at level 4 with the given branch. Rendered once per tower and branch, then cached. */
+export function branchPortrait(type: TowerType, branch: 0 | 1): string {
+  const key = `${type}:${branch}`;
+  let url = branchPortraitCache.get(key);
+  if (!url) {
+    // Both branches of a tower are rendered together so one renderer serves the pair.
+    const urls = portrait([makeTower(type, 4, 0), makeTower(type, 4, 1)], 128, 0.68, 0.82);
+    branchPortraitCache.set(`${type}:0`, urls[0]);
+    branchPortraitCache.set(`${type}:1`, urls[1]);
+    url = urls[branch];
+  }
+  return url;
+}
+
 const heroPortraitCache = new Map<string, string>();
 
 /** A portrait of the Warden in a given loadout. Cached per loadout. */
@@ -233,6 +251,25 @@ export function heroPortrait(loadout: Loadout, size = 256): string {
   return url;
 }
 
+// Shadow traits: small portraits of every shadow for the next-wave preview at the wave horn.
+let enemyPortraitCache: Record<EnemyType, string> | null = null;
+
+/** A portrait of each shadow, all drawn at about the same size and turned to show the face. Cached. */
+export function enemyPortraits(): Record<EnemyType, string> {
+  if (enemyPortraitCache) return enemyPortraitCache;
+  const types = Object.keys(ENEMIES) as EnemyType[];
+  const objs = types.map((type) => {
+    const obj = makeEnemy(type), r = ENEMIES[type].r, s = 0.3 / r;
+    obj.scale.setScalar(s);
+    obj.position.y = r * s + (type === 'flitter' ? 0.12 : 0);
+    obj.rotation.y = -1.05;
+    return obj;
+  });
+  const urls = portrait(objs, 96, 0.36, 0.56);
+  enemyPortraitCache = Object.fromEntries(types.map((t, i) => [t, urls[i]])) as Record<EnemyType, string>;
+  return enemyPortraitCache;
+}
+
 // ---------- per-object view state ----------
 
 interface TowerView {
@@ -247,6 +284,8 @@ interface TowerView {
 interface EnemyView {
   obj: THREE.Group; body: THREE.Object3D; lx: number; lz: number; yaw: number;
   lastHit: number; hitAt: number; bornAt: number; mats: THREE.MeshToonMaterial[]; color: THREE.Color;
+  /** Hit points last frame, to tell a real blow from a burn tick. */
+  lastHp: number;
   parts: Record<string, THREE.Object3D | undefined>;
 }
 
@@ -285,7 +324,10 @@ export class GameView {
 
   private world = new THREE.Group();
   private towers = new Map<Tower, TowerView>();
-  private hero: { obj: THREE.Group; key: string; yaw: number; lastCd: number; fireAt: number; castSeen: number; castAt: number; builtAt: number } | null = null;
+  private hero: { obj: THREE.Group; key: string; yaw: number; lastCd: number; fireAt: number; castSeen: number; castAt: number; builtAt: number; muzzle?: THREE.Object3D } | null = null;
+  // Game feel: hit-stop holds the picture still for a few frames on heavy impacts. The simulation keeps running.
+  private hitStopUntil = 0;
+  private lastHitStop = -9;
   /** Gold ring around the Warden when the Badge charm is boosting nearby towers. */
   private aura = (() => {
     const m = new THREE.Mesh(new THREE.RingGeometry(0.96, 1, 64), new THREE.MeshBasicMaterial({ color: '#f0bf55', transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
@@ -317,6 +359,11 @@ export class GameView {
   private selectRing: THREE.Mesh;
   private ghost: { type: TowerType | 'hero'; obj: THREE.Group } | null = null;
   private rangeGeo = new THREE.RingGeometry(0.975, 1, 72);
+  // In-game controls: range ring preview state (see setRangeFocus).
+  private rangeFocus: { t: Tower; range: number } | null = null;
+  private ringFor: Tower | null = null;
+  private ringScale = 1;
+  private ringT = 0;
   private ringGeo = new THREE.RingGeometry(0.88, 1, 48);
   private boltGeo = new THREE.SphereGeometry(1, 10, 8);
   private shardGeo = new THREE.OctahedronGeometry(1, 0);
@@ -454,6 +501,15 @@ export class GameView {
     this.heartLight.position.set(w.heart.position.x, 1.1, w.heart.position.z);
   }
 
+  /**
+   * Shows the range ring around a tower that is not necessarily selected, at a range in tiles.
+   * Passing a larger range than the tower has now previews an upgrade: the ring eases out to it.
+   * Null falls back to the selected tower's own ring.
+   */
+  setRangeFocus(t: Tower | null, range?: number) {
+    this.rangeFocus = t ? { t, range: range ?? stats(t).range } : null;
+  }
+
   /** Where a board point (simulation pixels, at a height in world units) appears on screen, in CSS pixels. */
   screenOf(x: number, y: number, height = 0) {
     this.syncSize();
@@ -479,6 +535,13 @@ export class GameView {
   render(g: Game) {
     this.syncSize();
     const now = performance.now() / 1000;
+    if (now < this.hitStopUntil) {
+      // Hold the frame: only the cursor keeps up, so input never feels stuck.
+      this.updateCursor(g);
+      this.composer.render();
+      this.drawOverlay(g);
+      return;
+    }
     this.syncTowers(g, now);
     this.syncHero(g, now);
     this.syncEnemies(g, now);
@@ -489,9 +552,7 @@ export class GameView {
     this.animateWorld(g, now);
     this.drawPoints(g);
 
-    // Shake the world rather than the camera so the framing never drifts.
-    const shake = g.shake * 0.25;
-    this.scene.position.set((Math.random() - 0.5) * shake, 0, (Math.random() - 0.5) * shake);
+    // No screen shake: the user rejected it. Heavy impacts get a hit-stop instead (see hitStop).
     this.composer.render();
     this.drawOverlay(g);
   }
@@ -640,13 +701,17 @@ export class GameView {
       addOutlines(obj);
       obj.position.set(wx(h.x), 0, wz(h.y));
       this.scene.add(obj);
-      v = { obj, key, yaw: v?.yaw ?? -h.angle, lastCd: h.cd, fireAt: -9, castSeen: h.castAt, castAt: -9, builtAt: upgraded ? now - 0.12 : now };
+      v = { obj, key, yaw: v?.yaw ?? -h.angle, lastCd: h.cd, fireAt: -9, castSeen: h.castAt, castAt: -9, builtAt: upgraded ? now - 0.12 : now, muzzle: obj.getObjectByName('muzzle') };
       this.hero = v;
       if (!upgraded) this.puff(wx(h.x), 0.1, wz(h.y), '#efe2c4', 16, 1.2);
     }
     if (h.cd > v.lastCd + 1e-4) v.fireAt = now;
     v.lastCd = h.cd;
-    if (h.castAt !== v.castSeen) { v.castSeen = h.castAt; v.castAt = now; }
+    if (h.castAt !== v.castSeen) {
+      v.castSeen = h.castAt; v.castAt = now;
+      // The Shooting Star lands like a Starfall star.
+      if (l.weapon === 'sling') this.hitStop(now, 0.07);
+    }
     const fire = kick(now, v.fireAt, 0.3), cast = kick(now, v.castAt, 0.8);
     const s = HERO_SCALE * easeOutBack(clamp01((now - v.builtAt) / 0.45)) * (1 + 0.12 * h.flash);
     v.obj.scale.setScalar(s);
@@ -690,9 +755,9 @@ export class GameView {
         this.scene.add(obj);
         const skin = obj.getObjectByName('skin') as THREE.Mesh | undefined;
         const parts: EnemyView['parts'] = {};
-        for (const n of ['footL', 'footR', 'wingL', 'wingR', 'armL', 'armR', 'cloak', 'shield', 'slow', 'burn', 'stun']) parts[n] = obj.getObjectByName(n);
+        for (const n of ['footL', 'footR', 'wingL', 'wingR', 'armL', 'armR', 'cloak', 'shield', 'buds', 'slow', 'burn', 'stun']) parts[n] = obj.getObjectByName(n);
         v = {
-          obj, body: obj.getObjectByName('body')!, lx: x, lz: z, yaw: 0, lastHit: e.lastHit, hitAt: -9, bornAt: now, mats,
+          obj, body: obj.getObjectByName('body')!, lx: x, lz: z, yaw: 0, lastHit: e.lastHit, hitAt: -9, bornAt: now, mats, lastHp: e.hp,
           color: skin ? (skin.material as THREE.MeshToonMaterial).color.clone() : new THREE.Color(e.def.color), parts,
         };
         this.enemies.set(e, v);
@@ -706,6 +771,7 @@ export class GameView {
       this.dying.push({ obj: v.obj, at: now, kill, scale: v.obj.scale.x, mats: v.mats });
       if (kill) {
         this.puff(v.obj.position.x, v.obj.position.y, v.obj.position.z, '#' + v.color.getHexString(), e.type === 'giant' ? 40 : 14, 2.2, 3);
+        if (e.type === 'giant') this.giantFalls(v.obj.position, now);
         this.motes.push({ x: v.obj.position.x, y: v.obj.position.y + 0.2, z: v.obj.position.z, vx: 0, vy: 0.9, vz: 0, life: 0.9, max: 0.9, color: new THREE.Color(C.eye).multiplyScalar(1.6), gravity: 0 });
       }
     }
@@ -720,7 +786,7 @@ export class GameView {
       v.yaw += Math.atan2(Math.sin(target - v.yaw), Math.cos(target - v.yaw)) * 0.25;
     }
     v.lx = x; v.lz = z;
-    const pace = { crawler: 2.4, flitter: 1, lump: 1.3, shimmer: 1, giant: 0.9 }[e.type];
+    const pace = { crawler: 2.4, flitter: 1, lump: 1.3, shimmer: 1, splitter: 1.6, speck: 3, dasher: e.dashing ? 4.5 : 1.6, giant: 0.9 }[e.type];
     const t = g.t * pace * 4 + e.seed;
     const frozen = e.stun > g.t;
     const step = frozen ? 0 : 1;
@@ -745,18 +811,55 @@ export class GameView {
     } else if (e.type === 'shimmer') {
       lift = 0.12 + Math.sin(t * 0.7) * 0.06;
       if (p.cloak) p.cloak.rotation.z = Math.sin(t * 1.3) * 0.08;
-      if (p.shield) { p.shield.rotation.y = g.t * 0.8; p.shield.scale.setScalar(1 + Math.sin(g.t * 3 + e.seed) * 0.04); }
+      // Shadow traits: the ward shows while the Veil mends and breaks while it burns or is frozen.
+      if (p.shield) {
+        p.shield.visible = e.mending;
+        p.shield.rotation.y = g.t * 0.8;
+        p.shield.scale.setScalar(1 + Math.sin(g.t * 3 + e.seed) * 0.04 + (e.mending && e.hp < e.maxHp ? 0.06 : 0));
+      }
+    } else if (e.type === 'splitter') {
+      // A heavy wobble, with the clinging Droplets jiggling a beat behind.
+      lift = Math.abs(Math.sin(t)) * 0.04 * step;
+      v.body.rotation.x = Math.sin(t) * 0.1 * step;
+      if (p.footL) p.footL.position.x = r * 0.15 + Math.sin(t) * r * 0.25 * step;
+      if (p.footR) p.footR.position.x = r * 0.15 - Math.sin(t) * r * 0.25 * step;
+      if (p.buds) { const j = 1 + Math.sin(t * 2 - 1.2) * 0.07 * step; p.buds.scale.set(j, 2 - j, j); p.buds.rotation.y = Math.sin(t) * 0.12 * step; }
+    } else if (e.type === 'speck') {
+      // Little hops.
+      lift = Math.abs(Math.sin(t)) * 0.11 * step;
+      v.body.rotation.z = -Math.sin(t) * 0.12 * step;
+      if (p.footL) p.footL.position.x = r * 0.1 + Math.sin(t) * r * 0.35 * step;
+      if (p.footR) p.footR.position.x = r * 0.1 - Math.sin(t) * r * 0.35 * step;
+    } else if (e.type === 'dasher') {
+      // Trots between bursts; during a burst it gallops low with its ears flat.
+      const run = e.dashing ? 1 : 0;
+      lift = Math.abs(Math.sin(t)) * (0.025 + 0.03 * run) * step;
+      v.body.rotation.z = (-Math.sin(t) * 0.08 - 0.12 * run) * step;
+      if (p.footL) p.footL.rotation.z = Math.sin(t) * (0.6 + 0.5 * run) * step;
+      if (p.footR) p.footR.rotation.z = -Math.sin(t) * (0.6 + 0.5 * run) * step;
+      for (const ear of [p.armL, p.armR]) if (ear) ear.rotation.z = -0.9 * run + Math.sin(t * 0.5) * 0.1;
     }
     const squash = Math.sin(t * 2) * 0.05 * step;
     v.body.scale.set(1 + squash, 1 - squash, 1 + squash);
+    // Shadow traits: a sprinting Scurrier stretches out along its run.
+    if (e.type === 'dasher' && e.dashing) v.body.scale.set(1.18, 0.88, 0.95);
     v.body.rotation.y = v.yaw;
 
     const born = easeOutBack(clamp01((now - v.bornAt) / 0.35));
     const s = ENEMY_SCALE * born;
-    v.obj.scale.setScalar(s);
     v.obj.position.set(x, (r + lift) * s, z);
 
-    if (e.lastHit !== v.lastHit) { v.lastHit = e.lastHit; v.hitAt = now; }
+    if (e.lastHit !== v.lastHit) {
+      v.lastHit = e.lastHit;
+      // Burning shadows lose a sliver of health every frame; only a real blow (or the lab's nudge,
+      // which deals no damage) flashes and squashes, so burning shadows do not glow constantly.
+      const drop = v.lastHp - e.hp;
+      if (Math.abs(drop) < 1e-9 || drop > 2.5) v.hitAt = now;
+    }
+    v.lastHp = e.hp;
+    // A short squash when a blow lands.
+    const hit = kick(now, v.hitAt, 0.16);
+    v.obj.scale.set(s * (1 + 0.14 * hit), s * (1 - 0.2 * hit), s * (1 + 0.14 * hit));
     const flash = kick(now, v.hitAt, 0.14);
     for (const m of v.mats) m.emissive.setScalar(flash * 0.85);
 
@@ -807,7 +910,12 @@ export class GameView {
         // The simulation launches from the tower's centre; the view starts the shot at the weapon's muzzle
         // and lets that offset fade out over the flight.
         const tv = this.towers.get(s.src as Tower);
-        const from = tv ? this.muzzleOf(tv, true) : null;
+        let from = tv ? this.muzzleOf(tv, true) : null;
+        // The Warden's shots leave from the weapon in hand, like the towers' leave their muzzles.
+        if (!from && s.src === g.hero && this.hero?.muzzle) {
+          this.hero.obj.updateMatrixWorld(true);
+          from = this.hero.muzzle.getWorldPosition(new THREE.Vector3());
+        }
         const off = from ? from.sub(new THREE.Vector3(wx(s.src.x), s.kind === 'shell' ? 1.1 : 0.85, wz(s.src.y))) : new THREE.Vector3();
         v = { mesh, lx: wx(s.x), lz: wz(s.y), off };
         this.shots.set(s, v);
@@ -832,7 +940,34 @@ export class GameView {
       }
       v.lx = x; v.lz = z;
     }
-    for (const [s, v] of this.shots) if (!seen.has(s)) { this.scene.remove(v.mesh); this.shots.delete(s); }
+    for (const [s, v] of this.shots) {
+      if (seen.has(s)) continue;
+      // A Starfall star landing is a heavy impact.
+      if (s.kind === 'shell') this.hitStop(performance.now() / 1000, 0.05);
+      this.scene.remove(v.mesh); this.shots.delete(s);
+    }
+  }
+
+  /**
+   * Game feel: holds the picture still for `dur` seconds on a heavy impact. View only; the
+   * simulation keeps its pace. Spaced out so a row of Starfalls never makes the board stutter.
+   */
+  private hitStop(now: number, dur: number) {
+    if (now - this.lastHitStop < 0.4) return;
+    this.lastHitStop = now;
+    this.hitStopUntil = now + dur;
+  }
+
+  /** Game feel: a giant (the Gloom Lord) falls with a held beat and a big splash of Gloom ink. */
+  private giantFalls(at: THREE.Vector3, now: number) {
+    this.hitStop(now, 0.09);
+    // Ink thrown up and out, then a low spread of droplets across the ground. Ink colours, no light.
+    this.puff(at.x, at.y, at.z, C.violet, 36, 3.2, 3.4);
+    const c = new THREE.Color(C.inkLump);
+    for (let i = 0; i < 28; i++) {
+      const a = (i / 28) * Math.PI * 2 + Math.random() * 0.2, sp = 2.4 + Math.random() * 1.2;
+      this.motes.push({ x: at.x, y: 0.08, z: at.z, vx: Math.cos(a) * sp, vy: 0.25, vz: Math.sin(a) * sp, life: 0.7, max: 0.7, color: c, gravity: 0.6 });
+    }
   }
 
   /** A burst of small motes, e.g. dust when a tower lands or ink when an enemy pops. */
@@ -950,12 +1085,22 @@ export class GameView {
       this.footprint.visible = false;
       this.buildRing.visible = false;
     }
-    if (g.selected) {
+    // In-game controls: a hovered or tapped tower shows its ring, and while an upgrade is being
+    // previewed the ring eases out to the next level's range.
+    const focus = this.rangeFocus ?? (g.selected ? { t: g.selected, range: stats(g.selected).range } : null);
+    if (focus && !g.towers.includes(focus.t)) this.rangeFocus = null;
+    if (focus && g.towers.includes(focus.t)) {
+      const now = performance.now() / 1000, dt = Math.min(0.1, now - this.ringT);
+      if (this.ringFor !== focus.t || !this.selectRing.visible) this.ringScale = stats(focus.t).range;
+      this.ringScale += (focus.range - this.ringScale) * (1 - Math.exp(-dt * 14));
+      this.ringT = now;
+      this.ringFor = focus.t;
       this.selectRing.visible = true;
-      this.selectRing.position.set(wx(g.selected.x), 0.03, wz(g.selected.y));
-      this.selectRing.scale.setScalar(stats(g.selected).range);
-      (this.selectRing.material as THREE.MeshBasicMaterial).color.set('#fff6dc');
+      this.selectRing.position.set(wx(focus.t.x), 0.03, wz(focus.t.y));
+      this.selectRing.scale.setScalar(this.ringScale);
+      (this.selectRing.material as THREE.MeshBasicMaterial).color.set(focus.range > stats(focus.t).range + 1e-3 ? '#ffe7a8' : '#fff6dc');
     } else if (g.heroSelected && g.hero) {
+      this.ringFor = null;
       this.selectRing.visible = true;
       this.selectRing.position.set(wx(g.hero.x), 0.03, wz(g.hero.y));
       this.selectRing.scale.setScalar(heroStats(g.hero).range);

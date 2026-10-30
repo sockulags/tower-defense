@@ -33,6 +33,10 @@ export const sv: Strings = {
     giveUp: 'Ge upp',
     sure: 'Säker? Klicka igen',
     placeHint: (name) => `Placera ${name} på gräset. Högerklicka eller tryck Esc för att avbryta.`,
+    // In-game controls: touch building and the phone note.
+    placeHintTouch: (name) => `Tryck på gräset där ${name} ska stå. Tryck på medaljongen igen för att avbryta.`,
+    confirmPlace: 'Tryck på samma ställe igen för att bygga här.',
+    turnPhone: 'Vänd telefonen på sidan för att spela.',
   },
 
   info: {
@@ -48,6 +52,15 @@ export const sv: Strings = {
     upgradeTo: (level) => `Uppgradera till ${level}`,
     maxLevel: 'Max nivå',
     sell: (value) => `Sälj +${value}`,
+    // In-game controls: the quick "+" upgrade and branch buttons over a tower.
+    upgradeFor: (level, cost) => `Uppgradera till nivå ${level} för ${cost} guld`,
+    branchFor: (name, cost) => `${name} för ${cost} guld`,
+    tapToChoose: 'Tryck igen för att välja',
+    burns: 'Bränner',
+    stuns: 'Bedövar',
+    freezes: 'Fryser',
+    shards: 'Splitter',
+    targets: 'Mål',
   },
 
   fx: {
@@ -288,7 +301,28 @@ export const sv: Strings = {
   },
   // ---------- end of front door ----------
 
-  enemies: { crawler: 'Bläckling', flitter: 'Skymningsmal', lump: 'Klumpen', shimmer: 'Slöjan', giant: 'Mörkerfursten' },
+  // ---------- shadows and shadow traits ----------
+  enemies: { crawler: 'Bläckling', flitter: 'Skymningsmal', lump: 'Klumpen', shimmer: 'Slöjan', splitter: 'Bläckplumpen', speck: 'Droppen', dasher: 'Rusaren', giant: 'Mörkerfursten' },
+  traits: {
+    names: { flying: 'Flyger', armoured: 'Pansrad', mends: 'Läker', splits: 'Delar sig', sprints: 'Rusar' },
+    desc: {
+      flying: 'Flyger över vägen. Bara torn som når flygare kan träffa den.',
+      armoured: 'Pansaret tar udden av varje träff, så tunga träffar biter bäst.',
+      mends: 'Läker snabbt om den inte brinner eller är frusen.',
+      splits: 'Spricker i tre droppar när den faller.',
+      sprints: 'Rusar i korta ryck om den inte är nedkyld.',
+    },
+    against: { flying: 'flygare', armoured: 'pansrade skuggor', mends: 'läkande skuggor', splits: 'skuggor som delar sig', sprints: 'rusande skuggor' },
+    hitsAir: 'Når flygare',
+    noAir: 'Når inte flygare',
+    noGround: 'Når inte skuggor på marken',
+    strong: (pct: number, against: string) => `+${pct} % skada mot ${against}`,
+    nextWave: (n: number) => `Kommer i våg ${n}`,
+    count: (n: number, name: string) => `${n} × ${name}`,
+    labTraits: 'Egenskaper',
+    labHits: 'Träffar',
+  },
+  // ---------- end shadows and shadow traits ----------
 
   nicknames: ['Gamle Sven', 'Lilla My', 'Bertil', 'Fröken Frost', 'Kapten Glöd', 'Tant Gnistra', 'Morbror Bo', 'Stina',
     'Vaktis', 'Doris', 'Lyktan Lasse', 'Elsa', 'Gubben Grön', 'Majken', 'Knut'],
