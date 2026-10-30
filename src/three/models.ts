@@ -111,176 +111,536 @@ function lantern(parent: THREE.Object3D, color: string, s = 1) {
   return l;
 }
 
-/** Shared foundation: a round plinth ringed with cobbles, with one glowing stud per level facing the camera. */
-function foundation(root: THREE.Group, level: number, branch: Branch, color: string) {
-  mesh(cyl(0.39, 0.43, 0.1, 24), toon(C.stoneDark), root, 0, 0.05, 0);
-  mesh(cyl(0.33, 0.37, 0.1, 24), toon(C.stone), root, 0, 0.15, 0);
-  // A few flat, uneven stones tucked against the plinth, so the base reads as built rather than machined.
-  const stones: [number, number][] = [[0.3, 0.075], [1.4, 0.06], [2.3, 0.085], [3.5, 0.065], [4.4, 0.08], [5.5, 0.06]];
-  for (const [a, s] of stones) {
-    const c = mesh(new THREE.DodecahedronGeometry(s, 1), toon(s > 0.07 ? C.stoneLight : C.stone), root,
-      Math.cos(a) * 0.4, 0.02, Math.sin(a) * 0.4);
-    c.scale.set(1.3, 0.4, 1);
-    c.rotation.y = a;
+// Every tower is built in stages instead of on a shared plinth. Levels 1-3 are three different
+// buildings of the same kind (a camp, a proper structure, a finished one), and each branch at level 4
+// is a new form of its own that gains detail at 5 and 6. The level shows in the shape, not in studs.
+
+/** A worn, blotchy patch of ground under a tower (dirt, frost, ash), flat and without an outline so it reads as ground. */
+function patch(root: THREE.Object3D, color: string, r: number) {
+  const blots: [number, number, number][] = [[0, 0, 1], [0.5, 0.42, 0.62], [2.3, 0.5, 0.55], [3.9, 0.38, 0.7], [5.2, 0.48, 0.5]];
+  blots.forEach(([a, d, s], i) => {
+    const b = mesh(new THREE.CircleGeometry(r * s, 20), toon(color), root, Math.cos(a) * r * d, 0.012 + i * 0.002, Math.sin(a) * r * d);
+    b.rotation.x = -Math.PI / 2;
+    b.userData.noOutline = true;
+    b.castShadow = false;
+  });
+}
+
+/** A rounded field stone. */
+function rock(parent: THREE.Object3D, x: number, z: number, s: number, color: string = C.stone, squash = 0.6) {
+  const r = mesh(new THREE.DodecahedronGeometry(s, 1), toon(color), parent, x, s * squash * 0.55, z);
+  r.scale.set(1.2, squash, 1);
+  r.rotation.y = x * 7 + z * 3;
+  return r;
+}
+
+function rockRing(parent: THREE.Object3D, n: number, r: number, s: number, offset = 0) {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + offset;
+    rock(parent, Math.cos(a) * r, Math.sin(a) * r, s * (0.85 + (i % 3) * 0.12), i % 2 ? C.stone : C.stoneLight);
   }
-  const studs = group(root, 'studs', 0, 0.16, 0.36);
-  for (let i = 0; i < level; i++) {
-    mesh(sph(0.026, 10, 8), glow(i >= 3 && branch !== null ? color : C.gem, 1.4), studs, (i - (level - 1) / 2) * 0.075, 0, 0);
-  }
+}
+
+/** A plank deck on four legs, top surface at height h. */
+function deck(parent: THREE.Object3D, h: number, half: number, top: string = C.wood) {
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) mesh(cyl(0.026, 0.034, h, 8), toon(C.woodDark), parent, x * half, h / 2, z * half);
+  mesh(box(half * 2 + 0.1, 0.05, half * 2 + 0.1), toon(top), parent, 0, h - 0.025, 0);
+}
+
+/** A little pennant named 'flag', which the view waves. */
+function pennant(parent: THREE.Object3D, x: number, y: number, z: number, color: string = C.cloth) {
+  mesh(cyl(0.009, 0.009, 0.24, 6), toon(C.iron), parent, x, y + 0.12, z);
+  const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(-0.2, -0.045), new THREE.Vector2(0, -0.1)]);
+  const flag = group(parent, 'flag', x, y + 0.24, z);
+  const f = mesh(new THREE.ShapeGeometry(shape), toon(color), flag, 0, 0, 0);
+  (f.material as THREE.Material).side = THREE.DoubleSide;
 }
 
 type TowerBuilder = (root: THREE.Group, level: number, branch: Branch, color: string) => void;
 
-/** Lantern Post: a lamplighter's post with a swinging lantern that spits sparks. */
-const sparkTower: TowerBuilder = (root, level, branch, color) => {
-  const tall = 0.5 + level * 0.05 + (branch === 1 ? 0.18 : 0);
-  mesh(cyl(0.045, 0.065, tall, 10), toon(C.wood), root, 0, 0.2 + tall / 2, 0);
-  if (level >= 2) for (const y of [0.34, 0.2 + tall - 0.12]) mesh(torus(0.058, 0.014), toon(C.brass), root, 0, y, 0).rotation.x = Math.PI / 2;
-  const top = 0.2 + tall;
-  if (level >= 3) mesh(cone(0.12, 0.12, 12), toon(C.roof), root, 0, top + 0.08, 0);
-  mesh(sph(0.04, 10, 8), toon(C.brass), root, 0, top + (level >= 3 ? 0.16 : 0.02), 0);
+// ---------- Spark: the lamplighter's post, a shooter ----------
 
-  const aim = group(root, 'aim', 0, top - 0.04, 0);
-  const arms = branch === 0 ? [-0.13, 0.13] : [0];
+/** The turning head of a lantern post: arms reaching out along +x with a swinging lantern on each. */
+function lanternHead(parent: THREE.Object3D, y: number, color: string, arms: number[], reach: number, scale = 1, barrel = 0) {
+  const aim = group(parent, 'aim', 0, y, 0);
+  if (arms.length > 1) mesh(box(0.05, 0.04, Math.abs(arms[0] - arms[arms.length - 1]) + 0.05), toon(C.woodDark), aim, 0, 0, 0);
   for (const z of arms) {
-    mesh(box(0.42, 0.04, 0.045), toon(C.woodDark), aim, 0.17, 0, z);
-    const swing = group(aim, 'swing', 0.33, -0.02, z);
+    mesh(box(reach + 0.08, 0.04, 0.045), toon(C.woodDark), aim, reach / 2, 0, z);
+    const swing = group(aim, 'swing', reach, -0.02, z);
     mesh(torus(0.018, 0.006), toon(C.iron), swing, 0, -0.03, 0);
     mesh(torus(0.018, 0.006), toon(C.iron), swing, 0, -0.065, 0).rotation.y = Math.PI / 2;
-    const l = lantern(swing, color, branch === 1 ? 1.15 : 1);
-    l.position.y = -0.2;
-    if (branch === 1) {
-      // Marksman: a brass sighting barrel clamped under the lantern.
-      const recoil = group(swing, 'recoil', 0, -0.2, 0);
-      mesh(cyl(0.022, 0.03, 0.42, 12), toon(C.brass), recoil, 0.25, 0, 0).rotation.z = Math.PI / 2;
-      mesh(torus(0.032, 0.01), toon(C.brassDark), recoil, 0.44, 0, 0).rotation.y = Math.PI / 2;
+    const l = lantern(swing, color, scale);
+    l.position.y = -0.2 * scale;
+    const recoil = group(swing, 'recoil', 0, -0.2 * scale, 0);
+    if (barrel) {
+      // A brass sighting barrel clamped under the lantern.
+      mesh(cyl(0.022, 0.03, barrel, 12), toon(C.brass), recoil, barrel / 2 + 0.04, 0, 0).rotation.z = Math.PI / 2;
+      mesh(torus(0.032, 0.01), toon(C.brassDark), recoil, barrel + 0.04, 0, 0).rotation.y = Math.PI / 2;
+      group(recoil, 'muzzle', barrel + 0.07, 0, 0);
+    } else {
+      // A flared brass spout on the lantern's side: the sparks leave through it.
+      const s = scale;
+      mesh(cyl(0.045 * s, 0.024 * s, 0.13 * s, 12), toon(C.brass), recoil, 0.12 * s, 0, 0).rotation.z = -Math.PI / 2;
+      mesh(torus(0.045 * s, 0.01), toon(C.brassDark), recoil, 0.185 * s, 0, 0).rotation.y = Math.PI / 2;
+      mesh(new THREE.CircleGeometry(0.038 * s, 12), glow(color, 1.6), recoil, 0.188 * s, 0, 0).rotation.y = Math.PI / 2;
+      group(recoil, 'muzzle', 0.2 * s, 0, 0);
     }
   }
-  if (level >= 4) {
-    // Pennant on the post.
-    const flag = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(-0.22, -0.05), new THREE.Vector2(0, -0.12)]);
-    const f = mesh(new THREE.ShapeGeometry(flag), toon(C.cloth), root, -0.04, top - 0.02, 0, 'flag');
-    (f.material as THREE.Material).side = THREE.DoubleSide;
-  }
-};
+  return aim;
+}
 
-/** Rime Spire: a rune obelisk with a floating crystal and orbiting shards. */
-const frostTower: TowerBuilder = (root, level, branch, color) => {
-  const h = 0.42 + level * 0.05;
-  mesh(cyl(0.11, 0.19, h, 8), toon(C.stoneLight), root, 0, 0.2 + h / 2, 0);
-  mesh(torus(0.15, 0.018, Math.PI * 2, 8), gem(color, 1.2), root, 0, 0.2 + h * 0.45, 0).rotation.x = Math.PI / 2;
-  mesh(cyl(0.16, 0.12, 0.06, 8), toon(C.stoneDark), root, 0, 0.2 + h + 0.03, 0);
-  const float = group(root, 'float', 0, 0.2 + h + 0.36, 0);
-  const crystal = mesh(new THREE.OctahedronGeometry(0.13 + level * 0.01, 0), gem('#4fc8f5', 0.35), float, 0, 0, 0, 'core');
-  crystal.scale.y = 2.1;
-  const orbit = group(float, 'orbit');
-  const shards = Math.min(8, 2 + level);
-  for (let i = 0; i < shards; i++) {
-    const a = (i / shards) * Math.PI * 2;
-    const s = mesh(new THREE.OctahedronGeometry(0.045, 0), gem('#8fdcff', 0.3), orbit, Math.cos(a) * 0.27, Math.sin(a * 2) * 0.05, Math.sin(a) * 0.27);
-    s.scale.y = 1.8;
+const sparkTower: TowerBuilder = (root, level, branch, color) => {
+  patch(root, C.dirtB, 0.34);
+  if (branch === null && level === 1) {
+    // A stake knocked into the dirt and a crate of spare wicks: the lamplighter has only just arrived.
+    mesh(cyl(0.035, 0.05, 0.66, 7), toon(C.wood), root, 0, 0.33, 0);
+    mesh(cone(0.04, 0.06, 7), toon(C.wood), root, 0, 0.69, 0);
+    const crate = mesh(box(0.15, 0.12, 0.15), toon(C.wood), root, -0.17, 0.06, 0.13);
+    crate.rotation.y = 0.5;
+    mesh(box(0.16, 0.02, 0.05), toon(C.woodDark), root, -0.17, 0.125, 0.13).rotation.y = 0.5;
+    lanternHead(root, 0.6, color, [0], 0.28, 0.9);
+    return;
+  }
+  if (branch === null && level === 2) {
+    // A proper lamp post, banded in brass and wedged in a cairn.
+    rockRing(root, 6, 0.12, 0.07);
+    mesh(cyl(0.042, 0.06, 0.8, 10), toon(C.wood), root, 0, 0.4, 0);
+    for (const y of [0.24, 0.62]) mesh(torus(0.054, 0.013), toon(C.brass), root, 0, y, 0).rotation.x = Math.PI / 2;
+    mesh(sph(0.045, 10, 8), toon(C.brass), root, 0, 0.82, 0);
+    lanternHead(root, 0.72, color, [0], 0.34);
+    return;
+  }
+  if (branch === null) {
+    // Level 3: a watch booth with a roofed post and a ladder up to the deck.
+    deck(root, 0.3, 0.16);
+    mesh(cyl(0.04, 0.05, 0.62, 10), toon(C.wood), root, 0, 0.6, 0);
+    mesh(cone(0.15, 0.14, 12), toon(C.roof), root, 0, 0.98, 0);
+    mesh(sph(0.03, 8, 6), toon(C.brass), root, 0, 1.06, 0);
+    for (const s of [-1, 1]) mesh(cyl(0.012, 0.012, 0.36, 6), toon(C.woodDark), root, s * 0.06, 0.15, 0.27).rotation.x = -0.25;
+    for (let i = 0; i < 3; i++) mesh(box(0.13, 0.015, 0.015), toon(C.woodDark), root, 0, 0.06 + i * 0.1, 0.29 - i * 0.025);
+    lanternHead(root, 0.82, color, [0], 0.36);
+    return;
   }
   if (branch === 0) {
-    // Ice Prison: a crown of icicles around the top of the obelisk.
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      const ic = mesh(cone(0.04, 0.3, 6), gem('#bfefff', 0.5), root, Math.cos(a) * 0.19, 0.2 + h + 0.12, Math.sin(a) * 0.19);
-      ic.rotation.set(Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3);
+    // Twin Spark: a brass gantry turning two lanterns, dressed up more with every level.
+    deck(root, 0.26, 0.17, C.woodDark);
+    mesh(cyl(0.05, 0.07, 0.5, 10), toon(C.brassDark), root, 0, 0.5, 0);
+    mesh(torus(0.07, 0.016), toon(C.brass), root, 0, 0.32, 0).rotation.x = Math.PI / 2;
+    const aim = lanternHead(root, 0.78, color, [-0.15, 0.15], 0.32, 1 + (level - 4) * 0.06);
+    mesh(halfSph(0.09), toon(level >= 5 ? C.brass : C.roof), aim, 0, 0.03, 0);
+    if (level >= 5) mesh(cone(0.03, 0.12, 8), toon(C.brass), aim, 0, 0.17, 0);
+    if (level >= 6) {
+      // Bunting strung between the deck posts.
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+        const f = mesh(cone(0.03, 0.06, 3), toon(i % 2 ? C.cloth : C.lamp), root, Math.cos(a) * 0.24, 0.2, Math.sin(a) * 0.24);
+        f.rotation.x = Math.PI;
+      }
+      pennant(root, -0.19, 0.26, -0.19);
+    }
+    return;
+  }
+  // Marksman: a tall, narrow sniper's perch with a long brass barrel under its lantern.
+  const h = 0.92 + (level - 4) * 0.05;
+  for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+    const leg = mesh(cyl(0.022, 0.03, h + 0.02, 7), toon(C.woodDark), root, x * 0.14, h / 2, z * 0.14);
+    leg.rotation.set(-z * 0.12, 0, x * 0.12);
+  }
+  for (const y of [0.3, 0.62]) {
+    const w = 2 * (0.14 + (h / 2 - y) * 0.12);
+    for (const s of [-1, 1]) {
+      mesh(box(w, 0.02, 0.02), toon(C.wood), root, 0, y, s * (w / 2));
+      mesh(box(0.02, 0.02, w), toon(C.wood), root, s * (w / 2), y, 0);
     }
   }
-  if (branch === 1) {
-    // Fog Bank: slow puffs of frost drifting around the spire.
-    const mist = group(root, 'mist', 0, 0.45, 0);
-    for (let i = 0; i < 5; i++) {
-      const a = (i / 5) * Math.PI * 2;
-      mesh(sph(0.12 + (i % 2) * 0.04, 12, 10), glow('#d8f4ff', 0.7, 0.28), mist, Math.cos(a) * 0.36, (i % 2) * 0.08, Math.sin(a) * 0.36);
+  mesh(cyl(0.13, 0.12, 0.05, 10), toon(C.wood), root, 0, h, 0);
+  mesh(cyl(0.035, 0.035, 0.2, 8), toon(C.woodDark), root, 0, h + 0.1, 0);
+  lanternHead(root, h + 0.16, color, [0], 0.16, 1.1, 0.42 + (level - 4) * 0.06);
+  if (level >= 5) mesh(torus(0.13, 0.015), toon(C.brass), root, 0, h + 0.03, 0).rotation.x = Math.PI / 2;
+  if (level >= 6) pennant(root, -0.1, h, -0.06);
+};
+
+// ---------- Rime: frost magic, a slower ----------
+
+function crystal(parent: THREE.Object3D, size: number, name = 'core') {
+  const c = mesh(new THREE.OctahedronGeometry(size, 0), gem('#4fc8f5', 0.35), parent, 0, 0, 0, name);
+  c.scale.y = 2.1;
+  return c;
+}
+
+function shardOrbit(parent: THREE.Object3D, n: number, r: number) {
+  const orbit = group(parent, 'orbit');
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    mesh(new THREE.OctahedronGeometry(0.045, 0), gem('#8fdcff', 0.3), orbit, Math.cos(a) * r, Math.sin(a * 2) * 0.05, Math.sin(a) * r).scale.y = 1.8;
+  }
+}
+
+/**
+ * The Rime's weapon: a long ice lance resting in a cradle, turned toward the target like a ballista bolt.
+ * It lies flat so it reads from the near top-down camera. Bolts leave from its glowing tip.
+ */
+function frostLens(parent: THREE.Object3D, y: number, reach: number, color: string, size = 1) {
+  const aim = group(parent, 'aim', 0, y, 0);
+  const recoil = group(aim, 'recoil');
+  const len = reach + 0.16 * size;
+  const lance = mesh(new THREE.OctahedronGeometry(0.06 * size, 0), gem('#8fdcff', 0.5), recoil, len / 2, 0, 0);
+  lance.scale.set(len / (0.12 * size), 0.7, 0.7);
+  for (const x of [len * 0.3, len * 0.62]) {
+    // Frost rings binding the lance.
+    mesh(torus(0.045 * size, 0.013), gem(color, 0.9), recoil, x, 0, 0).rotation.y = Math.PI / 2;
+  }
+  for (const sd of [-1, 1]) {
+    const fin = mesh(cone(0.03 * size, 0.14 * size, 4), gem('#bfefff', 0.45), recoil, 0.04, 0, sd * 0.05 * size);
+    fin.rotation.set(sd * -1.1, 0, Math.PI / 2);
+  }
+  mesh(sph(0.03 * size, 10, 8), glow('#d6f6ff', 1.8), recoil, len, 0, 0, 'core');
+  group(recoil, 'muzzle', len + 0.02, 0, 0);
+  return aim;
+}
+
+function icicle(parent: THREE.Object3D, x: number, z: number, h: number, r: number, lean: number, color = '#bfefff') {
+  const a = Math.atan2(z, x);
+  const ic = mesh(cone(r, h, 6), gem(color, 0.45), parent, x, h / 2, z);
+  ic.rotation.set(-Math.sin(a) * lean, 0, Math.cos(a) * lean);
+  return ic;
+}
+
+const frostTower: TowerBuilder = (root, level, branch, color) => {
+  patch(root, level >= 3 ? '#cfe6ec' : '#c4e0cf', 0.3 + level * 0.03);
+  if (branch === null && level === 1) {
+    // A frozen boulder with a crystal cracking out of it.
+    rock(root, 0, 0, 0.2, C.stoneLight, 0.8);
+    mesh(halfSph(0.16), toon('#f3faff'), root, -0.02, 0.15, 0).scale.y = 0.35;
+    const c = crystal(root, 0.11);
+    c.position.set(0.03, 0.44, 0.02);
+    c.rotation.z = -0.2;
+    for (const [x, z, h] of [[0.16, 0.08, 0.16], [-0.15, 0.12, 0.12], [0.06, -0.17, 0.1]]) icicle(root, x, z, h, 0.035, -0.3);
+    frostLens(root, 0.44, 0.2, color, 0.9);
+    return;
+  }
+  if (branch === null && level === 2) {
+    // The boulder has split, and the crystal floats free between the halves.
+    for (const s of [-1, 1]) {
+      const r = rock(root, s * 0.15, 0, 0.17, C.stoneLight, 1);
+      r.rotation.z = s * 0.35;
     }
+    const float = group(root, 'float', 0, 0.55, 0);
+    crystal(float, 0.11);
+    shardOrbit(float, 3, 0.24);
+    frostLens(root, 0.55, 0.26, color);
+    return;
+  }
+  if (branch === null) {
+    // Level 3: a carved rune obelisk holding the crystal aloft.
+    const h = 0.5;
+    mesh(cyl(0.11, 0.19, h, 8), toon(C.stoneLight), root, 0, h / 2, 0);
+    mesh(torus(0.15, 0.018, Math.PI * 2, 8), gem(color, 1.2), root, 0, h * 0.45, 0).rotation.x = Math.PI / 2;
+    mesh(cyl(0.16, 0.12, 0.06, 8), toon(C.stoneDark), root, 0, h + 0.03, 0);
+    const float = group(root, 'float', 0, h + 0.36, 0);
+    crystal(float, 0.14);
+    shardOrbit(float, 5, 0.27);
+    frostLens(root, h + 0.36, 0.3, color, 1.1);
+    return;
+  }
+  if (branch === 0) {
+    // Ice Prison: a cage of ice pillars grown up around a short obelisk, the crystal held inside.
+    mesh(cyl(0.1, 0.16, 0.3, 8), toon(C.stoneLight), root, 0, 0.15, 0);
+    const n = 5 + (level - 4);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + 0.3;
+      icicle(root, Math.cos(a) * 0.27, Math.sin(a) * 0.27, 0.62 + (i % 2) * 0.16, 0.06, 0.2);
+    }
+    const float = group(root, 'float', 0, 0.62, 0);
+    crystal(float, 0.13 + (level - 4) * 0.01);
+    shardOrbit(float, 2 + level, 0.17);
+    frostLens(root, 0.62, 0.38, color, 1.1 + (level - 4) * 0.1);
+    if (level >= 5) for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      icicle(root, Math.cos(a) * 0.4, Math.sin(a) * 0.4, 0.22, 0.045, -0.35, '#e6f8ff');
+    }
+    if (level >= 6) {
+      // A frozen crown closing over the cage.
+      mesh(torus(0.22, 0.03, Math.PI * 2, 10), gem('#bfefff', 0.5), root, 0, 0.86, 0).rotation.x = Math.PI / 2;
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        const sp = mesh(cone(0.035, 0.18, 6), gem('#e6f8ff', 0.5), root, Math.cos(a) * 0.22, 0.95, Math.sin(a) * 0.22);
+        sp.rotation.set(Math.sin(a) * 0.4, 0, -Math.cos(a) * 0.4);
+      }
+    }
+    return;
+  }
+  // Fog Bank: a wide frozen basin breathing mist, the crystal hanging low over the ice.
+  mesh(cyl(0.3, 0.34, 0.16, 18), toon(C.stone), root, 0, 0.08, 0);
+  mesh(torus(0.3, 0.045, Math.PI * 2, 18), toon(C.stoneLight), root, 0, 0.16, 0).rotation.x = Math.PI / 2;
+  mesh(cyl(0.27, 0.27, 0.02, 18), gem('#bfe9ff', 0.4), root, 0, 0.16, 0);
+  const float = group(root, 'float', 0, 0.48, 0);
+  crystal(float, 0.12);
+  shardOrbit(float, 3, 0.2);
+  jets(root, 6, 0.3, 0.14, '#d8f4ff', level >= 5);
+  const mist = group(root, 'mist', 0, 0.28, 0);
+  const puffs = 4 + (level - 4) * 2;
+  for (let i = 0; i < puffs; i++) {
+    const a = (i / puffs) * Math.PI * 2;
+    mesh(sph(0.11 + (i % 2) * 0.04, 12, 10), glow('#d8f4ff', 0.7, 0.28), mist, Math.cos(a) * 0.34, (i % 2) * 0.08, Math.sin(a) * 0.34);
+  }
+  if (level >= 6) {
+    // Two rune arches over the basin.
+    for (const r of [0, Math.PI / 2]) mesh(torus(0.3, 0.03, Math.PI, 14), toon(C.stoneLight), root, 0, 0.16, 0).rotation.y = r;
+    mesh(sph(0.04, 8, 6), gem(color, 1.2), root, 0, 0.46, 0);
   }
 };
 
-/** Ember Brazier: an iron cauldron on clawed legs with living flames. */
-const pulseTower: TowerBuilder = (root, level, branch, color) => {
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
-    const leg = group(root, '', Math.cos(a) * 0.17, 0.2, Math.sin(a) * 0.17);
-    leg.rotation.y = -a;
-    mesh(capsule(0.03, 0.3), toon(C.iron), leg, 0.04, 0.17, 0).rotation.z = 0.35;
-    mesh(cone(0.035, 0.1, 8), toon(C.iron), leg, 0.1, 0.0, 0).rotation.z = -Math.PI / 2;
-  }
-  const r = 0.27 + level * 0.015;
-  mesh(halfSph(r, false), toon(C.iron), root, 0, 0.62, 0);
-  mesh(torus(r, 0.03), toon(C.brassDark), root, 0, 0.62, 0).rotation.x = Math.PI / 2;
-  for (const z of [-1, 1]) mesh(torus(0.06, 0.014), toon(C.brassDark), root, 0, 0.55, z * (r + 0.02));
-  const coals = mesh(new THREE.CircleGeometry(r - 0.02, 24), glow('#ff5a22', 1.3), root, 0, 0.61, 0);
-  coals.rotation.x = -Math.PI / 2;
-  if (level >= 3) {
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2;
-      mesh(cone(0.025, 0.09, 6), toon(C.brass), root, Math.cos(a) * r, 0.66, Math.sin(a) * r);
-    }
-  }
-  const flames = group(root, 'flames', 0, 0.62, 0);
-  const s = 1 + level * 0.06 + (branch === 0 ? 0.2 : 0);
+// ---------- Ember Pulse: fire that bursts outward ----------
+
+function flamesAt(root: THREE.Object3D, y: number, s: number, color: string) {
+  const flames = group(root, 'flames', 0, y, 0);
   mesh(cone(0.15 * s, 0.5 * s, 12), glow(C.flame, 1.7), flames, 0, 0.25 * s, 0);
   mesh(cone(0.08 * s, 0.32 * s, 10), glow(C.flameCore, 2.2), flames, 0.02, 0.16 * s, 0.01);
   for (let i = 0; i < 4; i++) {
     const a = (i / 4) * Math.PI * 2 + 0.4;
-    const t = mesh(cone(0.07 * s, 0.26 * s, 10), glow(color, 1.6), flames, Math.cos(a) * 0.1, 0.12 * s, Math.sin(a) * 0.1);
+    const t = mesh(cone(0.07 * s, 0.26 * s, 10), glow(color, 1.6), flames, Math.cos(a) * 0.1 * s, 0.12 * s, Math.sin(a) * 0.1 * s);
     t.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35);
   }
-  const embers = group(root, 'embers', 0, 0.7, 0);
+  const embers = group(root, 'embers', 0, y + 0.08, 0);
   for (let i = 0; i < 5; i++) mesh(sph(0.018, 6, 4), glow('#ffcf6a', 1.8), embers, 0, 0, 0);
-  if (branch === 0) {
-    // Heatwave: the cauldron itself cracks with glowing seams.
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      const seam = mesh(box(0.02, 0.16, 0.012), glow('#ff4a1c', 1.5), root, Math.cos(a) * (r - 0.05), 0.52, Math.sin(a) * (r - 0.05));
-      seam.rotation.y = -a;
-      seam.rotation.z = 0.4;
+}
+
+function coals(root: THREE.Object3D, r: number, y: number) {
+  mesh(new THREE.CircleGeometry(r, 24), glow('#ff5a22', 1.3), root, 0, y, 0).rotation.x = -Math.PI / 2;
+}
+
+/**
+ * The weapon of an area tower: spouts around it, each holding a 'jet' that points outward.
+ * The view keeps jets small at rest and blasts them out every time the tower pulses.
+ */
+function jets(parent: THREE.Object3D, n: number, r: number, y: number, color: string, spouts = true, offset = 0) {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + offset;
+    const holder = group(parent, '', Math.cos(a) * r, y, Math.sin(a) * r);
+    holder.rotation.y = -a;
+    if (spouts) {
+      mesh(cyl(0.045, 0.028, 0.12, 10), toon(C.brass), holder, 0.03, 0, 0).rotation.z = -Math.PI / 2;
+      mesh(torus(0.045, 0.01), toon(C.brassDark), holder, 0.09, 0, 0).rotation.y = Math.PI / 2;
     }
+    const jet = group(holder, 'jet', spouts ? 0.09 : 0, 0, 0);
+    mesh(cone(0.05, 0.24, 8), glow(color, 1.7), jet, 0.12, 0, 0).rotation.z = -Math.PI / 2;
+    mesh(cone(0.025, 0.14, 8), glow(C.flameCore, 2), jet, 0.07, 0, 0).rotation.z = -Math.PI / 2;
   }
-  if (branch === 1) {
-    // Thunder Pulse: copper coils that crackle.
+}
+
+const pulseTower: TowerBuilder = (root, level, branch, color) => {
+  patch(root, '#8a7368', 0.34);
+  if (branch === null && level === 1) {
+    // A campfire in a ring of stones.
+    rockRing(root, 8, 0.2, 0.065, 0.2);
+    for (const r of [0.5, -0.6]) {
+      const log = mesh(capsule(0.035, 0.26), toon(C.wood), root, 0, 0.06, 0);
+      log.rotation.order = 'YXZ';
+      log.rotation.set(Math.PI / 2, r, 0);
+    }
+    coals(root, 0.12, 0.04);
+    flamesAt(root, 0.05, 0.8, color);
+    jets(root, 6, 0.1, 0.07, color, false, 0.3);
+    return;
+  }
+  if (branch === null && level === 2) {
+    // An iron fire bowl on a squat stone stack.
+    mesh(cyl(0.12, 0.2, 0.26, 10), toon(C.stone), root, 0, 0.13, 0);
+    mesh(cyl(0.16, 0.14, 0.05, 10), toon(C.stoneDark), root, 0, 0.28, 0);
+    mesh(halfSph(0.25, false), toon(C.iron), root, 0, 0.5, 0);
+    mesh(torus(0.25, 0.026), toon(C.brassDark), root, 0, 0.5, 0).rotation.x = Math.PI / 2;
+    coals(root, 0.23, 0.49);
+    flamesAt(root, 0.5, 0.95, color);
+    jets(root, 6, 0.25, 0.45, color);
+    return;
+  }
+  if (branch === null) {
+    // Level 3: a spiked cauldron striding on three clawed iron legs.
     for (let i = 0; i < 3; i++) {
-      const a = (i / 3) * Math.PI * 2 + 1;
-      const x = Math.cos(a) * (r + 0.08), z = Math.sin(a) * (r + 0.08);
-      mesh(cyl(0.018, 0.022, 0.55, 8), toon('#b8743a'), root, x, 0.5, z);
-      for (let k = 0; k < 3; k++) mesh(torus(0.04, 0.01), toon('#d98a45'), root, x, 0.55 + k * 0.07, z).rotation.x = Math.PI / 2;
-      mesh(sph(0.045, 10, 8), glow('#bfe4ff', 2), root, x, 0.8, z, 'arc');
+      const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
+      const leg = group(root, '', Math.cos(a) * 0.17, 0, Math.sin(a) * 0.17);
+      leg.rotation.y = -a;
+      mesh(capsule(0.03, 0.4), toon(C.iron), leg, 0.05, 0.27, 0).rotation.z = 0.3;
+      mesh(cone(0.04, 0.1, 8), toon(C.iron), leg, 0.12, 0.03, 0).rotation.z = -Math.PI / 2;
+    }
+    const r = 0.3;
+    mesh(halfSph(r, false), toon(C.iron), root, 0, 0.62, 0);
+    mesh(torus(r, 0.03), toon(C.brassDark), root, 0, 0.62, 0).rotation.x = Math.PI / 2;
+    for (const z of [-1, 1]) mesh(torus(0.06, 0.014), toon(C.brassDark), root, 0, 0.55, z * (r + 0.02));
+    jets(root, 8, r, 0.56, color);
+    coals(root, r - 0.02, 0.61);
+    flamesAt(root, 0.62, 1.15, color);
+    return;
+  }
+  if (branch === 0) {
+    // Heatwave: a stone kiln cracking with heat, a fire mouth in front and a chimney spitting flame.
+    mesh(cyl(0.32, 0.35, 0.16, 18), toon(C.stoneDark), root, 0, 0.08, 0);
+    mesh(halfSph(0.31), toon(C.stone), root, 0, 0.16, 0).scale.y = 1.1;
+    const mouth = mesh(new THREE.CircleGeometry(0.11, 16, 0, Math.PI), glow('#ff6a22', 1.6), root, 0, 0.17, 0.315);
+    mouth.rotation.x = -0.1;
+    mesh(torus(0.11, 0.025, Math.PI, 12), toon(C.stoneDark), root, 0, 0.17, 0.31);
+    const seams = 5 + (level - 4) * 2;
+    for (let i = 0; i < seams; i++) {
+      const a = (i / seams) * Math.PI * 2 + 0.5;
+      const seam = mesh(box(0.02, 0.18, 0.012), glow('#ff4a1c', 1.5), root, Math.cos(a) * 0.27, 0.3, Math.sin(a) * 0.27);
+      seam.rotation.y = -a;
+      seam.rotation.z = 0.5;
+    }
+    mesh(cyl(0.1, 0.12, 0.26, 10), toon(C.stoneDark), root, 0, 0.55, 0);
+    if (level >= 5) for (const y of [0.18, 0.02]) mesh(torus(0.335, 0.018, Math.PI * 2, 24), toon(C.brass), root, 0, y, 0).rotation.x = Math.PI / 2;
+    if (level >= 6) {
+      // A pair of bellows pumping the fire.
+      const b = group(root, '', -0.34, 0.1, 0.14);
+      b.rotation.y = 0.6;
+      mesh(box(0.2, 0.06, 0.14), toon(C.wood), b, 0, 0, 0);
+      mesh(cone(0.03, 0.12, 8), toon(C.brass), b, 0.15, 0, 0).rotation.z = -Math.PI / 2;
+    }
+    jets(root, 6 + (level - 4) * 2, 0.33, 0.12, color, true, 0.26);
+    coals(root, 0.08, 0.685);
+    flamesAt(root, 0.68, 0.85 + (level - 4) * 0.1, color);
+    return;
+  }
+  // Thunder Pulse: a copper storm coil on a stone foot, ringed by lightning rods.
+  mesh(cyl(0.22, 0.28, 0.16, 12), toon(C.stone), root, 0, 0.08, 0);
+  mesh(cyl(0.07, 0.1, 0.5, 10), toon('#b8743a'), root, 0, 0.4, 0);
+  for (let k = 0; k < 4; k++) mesh(torus(0.1 - k * 0.008, 0.016), toon('#d98a45'), root, 0, 0.26 + k * 0.1, 0).rotation.x = Math.PI / 2;
+  mesh(torus(0.17, 0.02), toon('#b8743a'), root, 0, 0.7, 0).rotation.x = Math.PI / 2;
+  mesh(sph(0.11, 14, 12), glow('#bfe4ff', 1.8), root, 0, 0.74, 0, 'core');
+  const rods = level >= 5 ? 4 : 3;
+  for (let i = 0; i < rods; i++) {
+    const a = (i / rods) * Math.PI * 2 + 0.6;
+    const x = Math.cos(a) * 0.3, z = Math.sin(a) * 0.3;
+    mesh(cyl(0.015, 0.022, 0.6, 8), toon('#b8743a'), root, x, 0.3, z);
+    mesh(cone(0.025, 0.07, 8), toon(C.brass), root, x, 0.63, z);
+    mesh(sph(0.04, 10, 8), glow('#bfe4ff', 2), root, x, 0.7, z, 'arc');
+  }
+  jets(root, rods, 0.3, 0.7, '#bfe4ff', false, 0.6);
+  if (level >= 6) {
+    // A small storm cloud brewing over the coil.
+    const mist = group(root, 'mist', 0, 1.2, 0);
+    for (let i = 0; i < 5; i++) {
+      const a = (i / 5) * Math.PI * 2;
+      mesh(sph(0.1 + (i % 2) * 0.03, 12, 10), toon('#7d86a8'), mist, Math.cos(a) * 0.12, (i % 2) * 0.04, Math.sin(a) * 0.12);
     }
   }
 };
 
-/** Starfall Observatory: a little domed observatory whose telescope lobs falling stars. */
-const starTower: TowerBuilder = (root, level, branch, color) => {
-  mesh(cyl(0.25, 0.29, 0.42, 20), toon(C.stone), root, 0, 0.41, 0);
-  mesh(torus(0.255, 0.02), toon(C.stoneDark), root, 0, 0.62, 0).rotation.x = Math.PI / 2;
-  mesh(box(0.08, 0.12, 0.02), glow(C.lamp, 1.2), root, 0, 0.42, 0.28);
-  mesh(box(0.11, 0.02, 0.03), toon(C.woodDark), root, 0, 0.35, 0.285);
-  const aim = group(root, 'aim', 0, 0.62, 0);
-  mesh(halfSph(0.26), toon(C.domeMetal), aim, 0, 0, 0);
-  mesh(torus(0.26, 0.022), toon(C.brass), aim, 0, 0.01, 0).rotation.x = Math.PI / 2;
-  mesh(box(0.44, 0.06, 0.1), toon('#1d2236'), aim, 0, 0.16, 0).rotation.z = 0.45;
-  const pitch = group(aim, 'pitch', 0, 0.12, 0);
+// ---------- Starfall: a stargazer's artillery ----------
+
+/** The turning, tilting telescope: 'aim' turns, 'pitch' tilts, 'recoil' kicks back. */
+function telescope(parent: THREE.Object3D, y: number, color: string, len: number, big = 1, barrels = 1) {
+  const aim = group(parent, 'aim', 0, y, 0);
+  const pitch = group(aim, 'pitch', 0, 0.06, 0);
   pitch.rotation.z = 0.5;
   const recoil = group(pitch, 'recoil');
-  const big = branch === 0 ? 1.3 : 1;
-  const len = 0.5 + level * 0.03;
-  mesh(cyl(0.055 * big, 0.08 * big, len, 16), toon(C.brass), recoil, len / 2, 0, 0).rotation.z = -Math.PI / 2;
-  for (const x of [0.12, len - 0.06]) mesh(torus(0.075 * big, 0.014), toon(C.brassDark), recoil, x, 0, 0).rotation.y = Math.PI / 2;
-  mesh(new THREE.CircleGeometry(0.05 * big, 16), glow(color, 1.8), recoil, len + 0.002, 0, 0).rotation.y = Math.PI / 2;
-  if (level >= 3) {
-    mesh(cyl(0.008, 0.008, 0.25, 6), toon(C.iron), aim, -0.08, 0.36, 0);
-    mesh(sph(0.025, 8, 6), glow(color, 1.8), aim, -0.08, 0.49, 0);
+  for (let b = 0; b < barrels; b++) {
+    const z = (b - (barrels - 1) / 2) * 0.1;
+    const r = barrels > 1 ? 0.75 : 1;
+    mesh(cyl(0.055 * big * r, 0.08 * big * r, len, 16), toon(C.brass), recoil, len / 2, 0, z).rotation.z = -Math.PI / 2;
+    for (const x of [0.12, len - 0.06]) mesh(torus(0.075 * big * r, 0.014), toon(C.brassDark), recoil, x, 0, z).rotation.y = Math.PI / 2;
+    mesh(new THREE.CircleGeometry(0.05 * big * r, 16), glow(color, 1.8), recoil, len + 0.002, 0, z).rotation.y = Math.PI / 2;
   }
-  const spin = group(root, 'spin', 0, 1.2, 0);
-  mesh(new THREE.OctahedronGeometry(0.08, 0), gem(color, 1), spin);
-  mesh(torus(0.15, 0.01, Math.PI * 2, 32), gem(color, 0.8), spin).rotation.x = Math.PI / 2.5;
-  if (branch === 1) {
+  group(recoil, 'muzzle', len + 0.04, 0, 0);
+  return aim;
+}
+
+/** The round stone observatory of level 3 and both branches. */
+function observatory(root: THREE.Object3D, r: number, h: number) {
+  mesh(cyl(r, r + 0.04, h, 20), toon(C.stone), root, 0, h / 2, 0);
+  mesh(torus(r + 0.005, 0.02), toon(C.stoneDark), root, 0, h, 0).rotation.x = Math.PI / 2;
+  mesh(box(0.08, 0.12, 0.02), glow(C.lamp, 1.2), root, 0, h * 0.5, r + 0.03);
+  mesh(box(0.11, 0.02, 0.03), toon(C.woodDark), root, 0, h * 0.5 - 0.07, r + 0.035);
+}
+
+function dome(aim: THREE.Object3D, r: number, color: string = C.domeMetal) {
+  mesh(halfSph(r), toon(color), aim, 0, 0, 0);
+  mesh(torus(r, 0.022), toon(C.brass), aim, 0, 0.01, 0).rotation.x = Math.PI / 2;
+  mesh(box(r * 1.7, 0.06, 0.1), toon('#1d2236'), aim, 0, r * 0.6, 0).rotation.z = 0.45;
+}
+
+const starTower: TowerBuilder = (root, level, branch, color) => {
+  patch(root, C.dirtB, 0.34);
+  if (branch === null && level === 1) {
+    // A stargazer's camp: a telescope on a tripod, a stool and a star chart on the grass.
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + 0.5;
+      const leg = mesh(cyl(0.016, 0.02, 0.5, 6), toon(C.woodDark), root, Math.cos(a) * 0.08, 0.24, Math.sin(a) * 0.08);
+      leg.rotation.set(Math.sin(a) * 0.3, 0, -Math.cos(a) * 0.3);
+    }
+    telescope(root, 0.46, color, 0.4, 0.8);
+    mesh(cyl(0.06, 0.06, 0.03, 10), toon(C.wood), root, -0.2, 0.14, 0.12);
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * Math.PI * 2;
-      mesh(sph(0.04, 10, 8), gem('#e8dcff', 0.7), spin, Math.cos(a) * 0.28, 0, Math.sin(a) * 0.28);
+      mesh(cyl(0.008, 0.008, 0.14, 5), toon(C.woodDark), root, -0.2 + Math.cos(a) * 0.04, 0.07, 0.12 + Math.sin(a) * 0.04);
     }
+    const chart = mesh(box(0.16, 0.008, 0.12), toon('#efe2c4'), root, 0.16, 0.025, 0.18);
+    chart.rotation.y = -0.4;
+    mesh(cyl(0.012, 0.012, 0.13, 6), toon(C.woodDark), root, 0.16, 0.03, 0.12).rotation.set(0, -0.4, Math.PI / 2);
+    return;
+  }
+  if (branch === null && level === 2) {
+    // A wooden lookout hut with the telescope on its railed roof.
+    mesh(box(0.42, 0.36, 0.42), toon(C.wood), root, 0, 0.18, 0);
+    mesh(box(0.48, 0.04, 0.48), toon(C.woodDark), root, 0, 0.38, 0);
+    for (const [x, z] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) mesh(cyl(0.012, 0.012, 0.12, 6), toon(C.woodDark), root, x * 0.21, 0.46, z * 0.21);
+    mesh(box(0.08, 0.12, 0.02), glow(C.lamp, 1.2), root, 0.1, 0.2, 0.215);
+    mesh(box(0.1, 0.22, 0.015), toon(C.woodDark), root, -0.08, 0.11, 0.215);
+    telescope(root, 0.42, color, 0.46, 0.9);
+    const spin = group(root, 'spin', 0, 1.02, 0);
+    mesh(new THREE.OctahedronGeometry(0.06, 0), gem(color, 1), spin);
+    return;
+  }
+  if (branch === null) {
+    // Level 3: the domed stone observatory.
+    observatory(root, 0.25, 0.62);
+    const aim = telescope(root, 0.62, color, 0.56);
+    dome(aim, 0.26);
+    const spin = group(root, 'spin', 0, 1.2, 0);
+    mesh(new THREE.OctahedronGeometry(0.08, 0), gem(color, 1), spin);
+    mesh(torus(0.15, 0.01, Math.PI * 2, 32), gem(color, 0.8), spin).rotation.x = Math.PI / 2.5;
+    return;
+  }
+  if (branch === 0) {
+    // Meteor: a squat, buttressed bastion with a wide dome and a mortar of a telescope.
+    observatory(root, 0.3, 0.46);
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+      const b = mesh(box(0.1, 0.36, 0.14), toon(C.stoneDark), root, Math.cos(a) * 0.33, 0.18, Math.sin(a) * 0.33);
+      b.rotation.y = -a;
+    }
+    const aim = telescope(root, 0.46, color, 0.5 + (level - 4) * 0.04, 1.4);
+    dome(aim, 0.31, '#9a5a3c');
+    if (level >= 5) for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      mesh(sph(0.018, 6, 4), toon(C.brass), root, Math.cos(a) * 0.305, 0.4, Math.sin(a) * 0.305);
+    }
+    if (level >= 6) {
+      // A captive meteor smouldering over the dome.
+      const spin = group(root, 'spin', 0, 1.15, 0);
+      rock(spin, 0, 0, 0.1, '#4a3a4f', 0.9).position.y = 0;
+      for (let i = 0; i < 4; i++) {
+        const a = (i / 4) * Math.PI * 2;
+        mesh(sph(0.03, 8, 6), glow('#ff8a3d', 1.6), spin, Math.cos(a) * 0.08, 0.02, Math.sin(a) * 0.08);
+      }
+    }
+    return;
+  }
+  // Shrapnel: a slim tower crowned by a whirling orrery, with a cluster of short barrels.
+  observatory(root, 0.22, 0.66);
+  const aim = telescope(root, 0.66, color, 0.44, 1, 3);
+  dome(aim, 0.23);
+  const spin = group(root, 'spin', 0, 1.22, 0);
+  mesh(sph(0.07, 12, 10), gem(color, 1), spin);
+  const rings = level >= 5 ? 3 : 2;
+  for (let i = 0; i < rings; i++) {
+    const ring = mesh(torus(0.2 + i * 0.05, 0.012, Math.PI * 2, 32), toon(C.brass), spin, 0, 0, 0);
+    ring.rotation.set(Math.PI / 2 + (i - 1) * 0.5, i * 0.8, 0);
+  }
+  const stones = 3 + (level - 4);
+  for (let i = 0; i < stones; i++) {
+    const a = (i / stones) * Math.PI * 2;
+    mesh(sph(0.04, 10, 8), gem('#e8dcff', 0.7), spin, Math.cos(a) * 0.28, Math.sin(a * 2) * 0.06, Math.sin(a) * 0.28);
   }
 };
 
@@ -290,8 +650,9 @@ export function makeTower(type: TowerType, level = 1, branch: Branch = null): TH
   const root = new THREE.Group();
   root.name = `tower-${type}`;
   const color = TOWERS[type].color;
-  foundation(root, level, branch, color);
-  TOWER_BUILDERS[type](root, level, branch, color);
+  const frame = group(root, 'frame');
+  frame.scale.setScalar(level === 1 ? 1.2 : level === 2 ? 1.1 : 1);
+  TOWER_BUILDERS[type](frame, level, branch, color);
   const badge = group(root, 'badge', 0, 1.55, 0);
   mesh(new THREE.OctahedronGeometry(0.08, 0), glow(C.lamp, 1.8), badge);
   badge.visible = false;
@@ -527,8 +888,7 @@ function charm(body: THREE.Object3D, loadout: Loadout) {
 export function makeHero(loadout: Loadout): THREE.Group {
   const root = new THREE.Group();
   root.name = 'hero';
-  mesh(cyl(0.28, 0.31, 0.05, 24), toon(C.stoneDark), root, 0, 0.025, 0);
-  mesh(torus(0.27, 0.018), toon(C.stone), root, 0, 0.05, 0).rotation.x = Math.PI / 2;
+  patch(root, C.dirtB, 0.28);
   const aim = group(root, 'aim', 0, 0.05, 0);
   const body = group(aim, 'body');
   const cloakColor = CLOAKS[loadout.cloak].color;
@@ -560,9 +920,11 @@ export function makeHero(loadout: Loadout): THREE.Group {
 export function makeHeart(): THREE.Group {
   const root = new THREE.Group();
   root.name = 'heart';
-  mesh(cyl(0.46, 0.5, 0.1, 28), toon(C.stoneDark), root, 0, 0.05, 0);
-  mesh(cyl(0.38, 0.42, 0.1, 28), toon(C.stone), root, 0, 0.15, 0);
-  mesh(cyl(0.2, 0.26, 0.26, 20), toon(C.stoneLight), root, 0, 0.33, 0);
+  // A stone column standing in trodden village ground, ringed with cobbles.
+  patch(root, C.dirtB, 0.5);
+  rockRing(root, 9, 0.36, 0.08, 0.3);
+  mesh(cyl(0.2, 0.28, 0.46, 12), toon(C.stoneLight), root, 0, 0.23, 0);
+  mesh(cyl(0.24, 0.22, 0.05, 12), toon(C.stone), root, 0, 0.46, 0);
   const lamp = group(root, 'lamp', 0, 0.78, 0);
   mesh(cyl(0.27, 0.23, 0.05, 20), toon(C.brassDark), lamp, 0, -0.3, 0);
   for (let i = 0; i < 6; i++) {

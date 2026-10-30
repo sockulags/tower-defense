@@ -240,6 +240,8 @@ interface TowerView {
   aim?: THREE.Object3D; recoil: THREE.Object3D[]; swings: THREE.Object3D[]; cores: THREE.Object3D[];
   flames?: THREE.Object3D; embers?: THREE.Object3D; float?: THREE.Object3D; orbit?: THREE.Object3D;
   mist?: THREE.Object3D; spin?: THREE.Object3D; arcs: THREE.Object3D[]; flag?: THREE.Object3D; badge?: THREE.Object3D;
+  /** Where shots leave the weapon, and the outward jets of area towers. */
+  muzzles: THREE.Object3D[]; jets: THREE.Object3D[]; nextMuzzle: number;
 }
 
 interface EnemyView {
@@ -293,7 +295,7 @@ export class GameView {
   })();
   private enemies = new Map<Enemy, EnemyView>();
   private dying: Dying[] = [];
-  private shots = new Map<Shot, { mesh: THREE.Mesh; lx: number; lz: number }>();
+  private shots = new Map<Shot, { mesh: THREE.Mesh; lx: number; lz: number; off: THREE.Vector3 }>();
   private rings = new Map<Fx, THREE.Mesh>();
   private heart: THREE.Group | null = null;
   private heartFlame: THREE.MeshBasicMaterial | null = null;
@@ -496,6 +498,37 @@ export class GameView {
 
   // ---------- towers ----------
 
+  /** The world position of a tower's next muzzle; towers with several barrels take turns. */
+  private muzzleOf(v: TowerView, advance: boolean) {
+    if (!v.muzzles.length) return null;
+    const m = v.muzzles[v.nextMuzzle % v.muzzles.length];
+    if (advance) v.nextMuzzle++;
+    v.obj.updateMatrixWorld(true);
+    return m.getWorldPosition(new THREE.Vector3());
+  }
+
+  /** A puff at the weapon when a tower fires: a muzzle flash, or a spray out of every jet. */
+  private weaponFlash(t: Tower, v: TowerView) {
+    const c = new THREE.Color(TOWERS[t.type].color).multiplyScalar(1.3);
+    v.obj.updateMatrixWorld(true);
+    for (const m of v.muzzles) {
+      const p = m.getWorldPosition(new THREE.Vector3());
+      for (let i = 0; i < 6; i++) {
+        const a = Math.random() * Math.PI * 2;
+        this.motes.push({ x: p.x, y: p.y, z: p.z, vx: Math.cos(a) * 0.6, vy: 0.3 + Math.random() * 0.5, vz: Math.sin(a) * 0.6, life: 0.25, max: 0.25, color: c, gravity: 0 });
+      }
+    }
+    const dir = new THREE.Vector3();
+    for (const j of v.jets) {
+      const p = j.getWorldPosition(new THREE.Vector3());
+      dir.set(1, 0, 0).transformDirection(j.matrixWorld);
+      for (let i = 0; i < 3; i++) {
+        const sp = 2.2 + Math.random() * 1.6;
+        this.motes.push({ x: p.x, y: p.y, z: p.z, vx: dir.x * sp + (Math.random() - 0.5) * 0.5, vy: 0.2 + Math.random() * 0.4, vz: dir.z * sp + (Math.random() - 0.5) * 0.5, life: 0.4, max: 0.4, color: c, gravity: 0.6 });
+      }
+    }
+  }
+
   private syncTowers(g: Game, now: number) {
     const seen = new Set<Tower>();
     for (const t of g.towers) {
@@ -516,6 +549,7 @@ export class GameView {
           flames: obj.getObjectByName('flames'), embers: obj.getObjectByName('embers'), float: obj.getObjectByName('float'),
           orbit: obj.getObjectByName('orbit'), mist: obj.getObjectByName('mist'), spin: obj.getObjectByName('spin'),
           arcs: byName(obj, 'arc'), flag: obj.getObjectByName('flag'), badge: obj.getObjectByName('badge'),
+          muzzles: byName(obj, 'muzzle'), jets: byName(obj, 'jet'), nextMuzzle: 0,
         };
         this.towers.set(t, v);
         this.puff(wx(t.x), 0.1, wz(t.y), '#efe2c4', upgraded ? 10 : 16, 1.2);
@@ -531,7 +565,8 @@ export class GameView {
   }
 
   private animateTower(t: Tower, v: TowerView, now: number) {
-    if (t.cd > v.lastCd + 1e-4) v.fireAt = now;
+    const fired = t.cd > v.lastCd + 1e-4;
+    if (fired) v.fireAt = now;
     v.lastCd = t.cd;
     const fire = kick(now, v.fireAt, 0.3);
     const ph = v.phase;
@@ -569,8 +604,11 @@ export class GameView {
       });
     }
     for (const a of v.arcs) a.scale.setScalar(0.8 + Math.random() * 0.5 + fire);
-    if (v.spin) { v.spin.rotation.y = now * 1.5; v.spin.position.y = 1.2 + Math.sin(now * 2 + ph) * 0.05; }
+    if (v.spin) { v.spin.rotation.y = now * 1.5; v.spin.position.y = (v.spin.userData.y0 ??= v.spin.position.y) + Math.sin(now * 2 + ph) * 0.05; }
     if (v.flag) v.flag.rotation.y = Math.sin(now * 3 + ph) * 0.35;
+    // Area towers blast flame (or frost, or lightning) out of every spout when they pulse.
+    for (const j of v.jets) j.scale.set(0.3 + 2.4 * fire + 0.06 * Math.sin(now * 12 + j.id), 0.7 + 0.6 * fire, 0.7 + 0.6 * fire);
+    if (fired) this.weaponFlash(t, v);
     if (v.badge) {
       v.badge.visible = needsBranch(t);
       v.badge.position.y = 1.55 + Math.sin(now * 4) * 0.07;
@@ -766,17 +804,24 @@ export class GameView {
           : new THREE.Mesh(type === 'star' ? this.shardGeo : this.boltGeo, glow(s.color, 2));
         mesh.scale.setScalar(type === 'star' ? 0.11 : type === 'frost' ? 0.06 : 0.045);
         this.scene.add(mesh);
-        v = { mesh, lx: wx(s.x), lz: wz(s.y) };
+        // The simulation launches from the tower's centre; the view starts the shot at the weapon's muzzle
+        // and lets that offset fade out over the flight.
+        const tv = this.towers.get(s.src as Tower);
+        const from = tv ? this.muzzleOf(tv, true) : null;
+        const off = from ? from.sub(new THREE.Vector3(wx(s.src.x), s.kind === 'shell' ? 1.1 : 0.85, wz(s.src.y))) : new THREE.Vector3();
+        v = { mesh, lx: wx(s.x), lz: wz(s.y), off };
         this.shots.set(s, v);
       }
+      const total = Math.hypot(s.tx - s.src.x, s.ty - s.src.y) || 1;
+      const f = 1 - Math.min(1, Math.hypot(s.tx - s.x, s.ty - s.y) / total);
       // Shells arc; bolts and shards fly level at lantern height.
       let y = 0.85;
       if (s.kind === 'shell') {
-        const total = Math.hypot(s.tx - s.src.x, s.ty - s.src.y) || 1;
-        const f = 1 - Math.min(1, Math.hypot(s.tx - s.x, s.ty - s.y) / total);
         y = 1.1 + Math.sin(f * Math.PI) * 1.5 - f * 0.9;
       }
-      const x = wx(s.x), z = wz(s.y);
+      const fade = (1 - f) * (1 - f);
+      const x = wx(s.x) + v.off.x * fade, z = wz(s.y) + v.off.z * fade;
+      y += v.off.y * fade;
       v.mesh.position.set(x, y, z);
       const heading = Math.atan2(-(z - v.lz), x - v.lx);
       if (type === 'spark') { v.mesh.rotation.set(0, heading, 0); v.mesh.scale.set(0.11, 0.04, 0.04); }
