@@ -24,8 +24,8 @@ export interface WeaponDef {
 }
 
 export const WEAPONS: Record<WeaponId, WeaponDef> = {
-  staff: { cost: 0, range: 2.2, rate: 0.7, dmg: 14, kind: 'bolt', color: '#ffc35a', cooldown: 18 },
-  bell: { cost: 40, range: 1.7, rate: 1.1, dmg: 11, kind: 'wave', color: '#9fd8ff', cooldown: 22 },
+  staff: { cost: 0, range: 2.2, rate: 0.65, dmg: 20, kind: 'bolt', color: '#ffc35a', cooldown: 18 },
+  bell: { cost: 40, range: 1.7, rate: 1.1, dmg: 10, kind: 'wave', color: '#9fd8ff', cooldown: 22 },
   sling: { cost: 60, range: 3.6, rate: 1.4, dmg: 30, kind: 'shot', color: '#c7a6ff', cooldown: 16 },
 };
 
@@ -63,7 +63,7 @@ export const STARTING_ITEMS = ['weapon:staff', 'charm:none', 'hat:hood', 'cloak:
 
 export const HERO_MAX_LEVEL = 5;
 /** Gold to raise the Warden from `level` to the next level during a run. */
-export const heroUpgradeCost = (level: number) => 60 * level;
+export const heroUpgradeCost = (level: number) => 50 * level;
 
 /** Charm tuning. */
 export const BADGE_RADIUS = 2.2;

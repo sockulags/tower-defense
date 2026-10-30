@@ -23,6 +23,10 @@ import { towerUnlocked } from '../save';
 import { $, clearTextCache, setText } from './dom';
 import { ICONS } from './icons';
 import { nav } from './nav';
+// Front door: first-run hints, the end-of-run panel and the pause menu's overlays.
+import { renderEnd } from './endrun';
+import { startHints, stopHints } from './hints';
+import { openHowTo, openSettings } from './settings';
 import type { Game, MapId, Tower, TowerType } from '../types';
 
 type Mode = 'menu' | 'play' | 'gallery';
@@ -73,7 +77,7 @@ export function startRun(mapId: MapId, dev = false) {
   applyStaticText();
   renderBelt();
   renderCard();
-  toast(L().info.idleHint, 7000);
+  startHints(g);
 }
 
 /** Demo towers for the menu backdrop: one of each kind, spread along Mill Hill's road. */
@@ -140,6 +144,8 @@ function applyStaticText() {
   $('bAuto').classList.remove('on');
   $('pausedBanner').textContent = s.paused;
   $('mResume').textContent = s.resume;
+  $('mSettings').textContent = L().front.settings;
+  $('mHowTo').textContent = L().front.howTo;
   $('bQuit').textContent = s.giveUp;
 }
 
@@ -447,24 +453,19 @@ function setMenu(open: boolean) {
 }
 
 function showEnd(win: boolean, gaveUp: boolean) {
-  const g = game!, s = L(), r = finishRun(g, win), m = g.map;
+  const g = game!, r = finishRun(g, win);
   $('card').hidden = true;
-  let h = `<div class="big">${win ? s.end.win : gaveUp ? s.end.gaveUp : s.end.lose}</div>`;
-  h += `<p>${m.survival ? s.end.survived(r.cleared) : s.end.clearedOf(r.cleared, m.waves)}${r.newBest && r.cleared > 0 ? ' ' + s.end.record : ''}</p>`;
-  h += `<p class="dust">${s.end.dust(r.dust)}</p>`;
-  if (r.hero && r.hero.dealt > 0) {
-    const who = r.hero.level >= NAMED_LEVEL ? `${nickname(r.hero)} (${s.towers[r.hero.type].name})` : s.towers[r.hero.type].name;
-    h += `<p class="fine">${s.end.hero(who, r.hero.level, r.hero.kills)}</p>`;
-  }
-  if (r.levelAfter > r.levelBefore) h += `<p class="good"><b>${s.end.newLevel(r.levelAfter)}</b></p>`;
-  for (const t of r.newTowers) h += `<p class="good">${s.end.newTower(s.towers[t].name)}</p>`;
-  for (const id of r.newMaps) h += `<p class="good">${s.end.newMap(s.maps[id].name)}</p>`;
-  h += `<div class="btnrow"><button class="go" id="oAgain">${s.end.again}</button><button class="ghost" id="oMenu">${s.end.menu}</button></div>`;
-  $('ovbox').innerHTML = h;
+  $('menuPop').hidden = true;
+  stopHints();
+  hideToast();
+  renderEnd($('ovbox'), g, r, gaveUp, (id) => startRun(id));
   $('ov').hidden = false;
-  $('oAgain').onclick = () => startRun(m.id);
-  $('oMenu').onclick = () => nav.menu();
 }
+
+/** True while the player is in a run: not the demo, the lab's sandbox or a finished run. */
+export const runActive = () => mode === 'play' && !!game && !game.over && !game.dev;
+/** Opens the pause menu, e.g. when the browser's back button is pressed during a run. */
+export const openPauseMenu = () => { if (runActive()) setMenu(true); };
 
 // ---------- input ----------
 
@@ -526,6 +527,8 @@ $('bMute').onclick = () => {
 };
 $('bMenu').onclick = () => setMenu($('menuPop').hidden);
 $('mResume').onclick = () => { setMenu(false); if (game) game.paused = false; };
+$('mSettings').onclick = () => openSettings();
+$('mHowTo').onclick = () => openHowTo();
 $('bQuit').onclick = () => {
   const g = game;
   if (!g || g.over) return;

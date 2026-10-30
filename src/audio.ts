@@ -1,6 +1,16 @@
 let ac: AudioContext | null = null;
-let muted = false;
-/** Silences game sounds without touching the player's mute choice, e.g. for the menu's background demo. */
+/** Sound effects volume from 0 to 1, chosen in settings. The default 0.8 plays each sound at its designed loudness. */
+const VOLUME_KEY = 'duskwatch-volume';
+let volume = (() => {
+  try {
+    const v = Number(localStorage.getItem(VOLUME_KEY));
+    if (localStorage.getItem(VOLUME_KEY) !== null && Number.isFinite(v)) return Math.min(1, Math.max(0, v));
+  } catch { /* ignore */ }
+  return 0.8;
+})();
+/** The volume to return to when the sound button unmutes. */
+let lastAudible = volume > 0 ? volume : 0.8;
+/** Silences game sounds without touching the player's volume, e.g. for the menu's background demo. */
 let quiet = false;
 let lastShot = 0;
 
@@ -10,19 +20,26 @@ export function initAudio() {
   try { ac = new AudioContext(); } catch { /* no audio */ }
 }
 
-export const isMuted = () => muted;
-export const setMuted = (m: boolean) => { muted = m; };
+export const getVolume = () => volume;
+export function setVolume(v: number) {
+  volume = Math.min(1, Math.max(0, v));
+  if (volume > 0) lastAudible = volume;
+  try { localStorage.setItem(VOLUME_KEY, String(volume)); } catch { /* ignore */ }
+}
+/** The in-game sound button: a quick mute that remembers the volume. */
+export const isMuted = () => volume === 0;
+export const setMuted = (m: boolean) => setVolume(m ? 0 : lastAudible);
 export const setQuiet = (q: boolean) => { quiet = q; };
 
 export function tone(f: number, dur: number, type: OscillatorType = 'sine', vol = 0.05, slide = 0) {
-  if (muted || quiet || !ac) return;
+  if (!volume || quiet || !ac) return;
   const t = ac.currentTime;
   const o = ac.createOscillator();
   const g = ac.createGain();
   o.type = type;
   o.frequency.setValueAtTime(f, t);
   if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, f + slide), t + dur);
-  g.gain.setValueAtTime(vol, t);
+  g.gain.setValueAtTime(vol * volume / 0.8, t);
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   o.connect(g).connect(ac.destination);
   o.start(t);

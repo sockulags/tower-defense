@@ -16,6 +16,8 @@ let current: Locale = (() => {
     const v = localStorage.getItem(KEY);
     if (v === 'en' || v === 'sv') return v;
   } catch { /* ignore */ }
+  // First visit: follow the browser's language when the game speaks it.
+  try { if (navigator.language?.toLowerCase().startsWith('sv')) return 'sv'; } catch { /* no navigator */ }
   return 'en';
 })();
 

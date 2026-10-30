@@ -1,0 +1,51 @@
+/* Self-hosted Alegreya SC and Alegreya Sans (SIL Open Font License, see OFL.txt), latin subset,
+   so the game's text looks right offline and inside the claude.ai Artifact. */
+@font-face {
+  font-family: 'Alegreya SC';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./alegreya-sc-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya SC';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./alegreya-sc-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya SC';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./alegreya-sc-800.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./alegreya-sans-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./alegreya-sans-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./alegreya-sans-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Alegreya Sans';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./alegreya-sans-800.woff2') format('woff2');
+}

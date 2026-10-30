@@ -8,7 +8,10 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build && node scripts/artifact.mjs",
     "preview": "vite preview",
-    "export-models": "node scripts/export-models.mjs"
+    "export-models": "node scripts/export-models.mjs",
+    "balance": "node scripts/balance.mjs",
+    "build:pages": "tsc --noEmit && vite build --mode pages && node scripts/pages-sw.mjs",
+    "icons": "node scripts/icons.mjs"
   },
   "devDependencies": {
     "@types/three": "^0.170.0",

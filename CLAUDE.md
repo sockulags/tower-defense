@@ -6,6 +6,8 @@ Browser tower defense game, built with Vite and TypeScript. The game board is re
 
 - `npm run typecheck` must pass.
 - `npm run build` must pass. It also produces `dist/artifact.html`.
+- `npm run build:pages` builds the GitHub Pages version (base `/tower-defense/`, service worker `dist/sw.js` from `scripts/sw.js`, manifest and icons from `public/`). Run it when touching `vite.config.ts`, `src/pwa.ts`, `public/` or `scripts/sw.js`.
+- `npm run balance` plays whole runs with the bots in `src/game/bots.ts` and prints a table per map (`--map`, `--strategy`, `--runs`, `--weapon`, `--charm`, `--waves`, `--seed`, `--json`). Run it after changing numbers in `src/data/`; the mixed bot should win every story map with lives to spare, and single-tower bots should do clearly worse. The lab's Balance tab runs the same bots in the browser.
 - For gameplay changes, run `npm run dev` and drive a run from the console. In dev, `window.__dw` exposes `startRun`, `currentGame`, `update`, `startWave`, `placeTower`, `canBuild`, `chooseBranch` and the rest of `game/run` and `game/towers`, and `window.__view` is the `GameView` (move `__view.camera` and `__view.controls` for close-up screenshots). Step `update(game, 1/60)` in a loop to simulate whole runs quickly. Towers are placed by position in simulation pixels, for example `placeTower(game, 'spark', 3.5 * 60, 2.5 * 60)`.
 - The dev server sometimes keeps serving a stale `src/main.ts`; dev handles added elsewhere (as `__view` in `play.ts`) load reliably.
 
@@ -37,25 +39,32 @@ Browser tower defense game, built with Vite and TypeScript. The game board is re
 
 - The board fills the whole window (`#game` is fixed full-screen). Controls live on the board as storybook props instead of a toolbar: a resource plaque top left, round buttons top right (speed, pause, sound, menu), a build belt of tower medallions bottom centre, a wave horn anchored just below the road's entrance, and a tower card that opens beside the selected tower. World-anchored pieces are positioned each frame in `placeAnchors` (`ui/play.ts`) via `GameView.screenOf`.
 - Belt medallions and tower cards show real 3D portraits rendered once by `towerPortraits()` in `three/view.ts`.
+- First-run hints (`ui/hints.ts`) show one bubble at a time (build, call the wave, upgrade, place the Warden), each waiting for the action and stored per profile in `save.hints`. The bubble sits above its target, or below when there is no room.
+- The end of a run is `ui/endrun.ts`, with results and unlocks computed in `meta.ts`. The menu button opens a pause menu (Resume, Settings, How to play, Give up), and the browser's back button during a run opens it too.
 - The whole UI shares one storybook style in `src/style.css` (parchment `--parch`, ink `--ink-d`, brass `--brass`, stardust `--dust`), with chunky ink outlines and drop shadows to match the cel-shaded board. There is no dark theme any more.
-- The board is always on screen. Behind the menu, `startAttract()` in `ui/play.ts` runs a silent, endless demo on Mill Hill with one of each tower; `mode` in `play.ts` keeps input and the HUD off during the demo. Map cards show real stills from `mapPortrait()` and the tower codex uses `towerPortraits()`, both cached in `three/view.ts`.
+- The board is always on screen. Behind the front door, `startAttract()` in `ui/play.ts` runs a silent, endless demo on Mill Hill with one of each tower; `mode` in `play.ts` keeps input and the HUD off during the demo. Map pictures are real stills from `mapPortrait()`, cached in `three/view.ts`.
+- Short screens (phones held sideways) get a `max-height: 500px` block in the front-door CSS; check new front-door views at about 812x375 as well as desktop.
 
 ## Screens
 
-- Four screens share the one board, switched through `nav` (`ui/nav.ts`, wired in `main.ts`): the menu and the Warden's Lodge float over the live demo, a run plays on the board, and the developer lab takes it over. The lab and the lodge have their own addresses, `#lab` and `#lodge`.
+- All screens share the one board, switched through `nav` (`ui/nav.ts`, wired in `main.ts`) and addressed by hash: `#` title, `#play` mode choice, `#story` and `#story/<map>` the storybook, `#survival`, `#lodge`, `#lodge/talents`, `#lodge/workshop`, and `#lab`. The browser's back button works throughout. `#play` and `#survival` lead to the storybook until Survival opens (watch level 3, every tower unlocked); unknown addresses lead to the title.
+- The front door (`ui/front.ts`) is the title (profile chip, settings gear, one big Play, the Lodge), the mode choice, the storybook (one spread per story map; unreached pages are pencil sketches with no words or button) and the survival list. Play starts Mill Hill at once on a first visit.
+- Overlays live in `ui/settings.ts` and share one `#sheet`: settings (volume, language, shortcuts, profile rename, switch, new, reset, version), the profile list, How to play and the shortcuts list (`?` in game). The sheet box gets the class `sheet-<name>`; do not reuse a sheet name as a content class.
+- Profiles (`save.ts`): each profile has its own save key `duskwatch-save-v1:<id>`, with the list and active profile in `duskwatch-profiles-v1`. Switching, creating and resetting replace the contents of the exported `save` object but keep the same object, so modules may hold on to it. The volume is stored per device in `audio.ts`, not per profile.
 - `ui/play.ts` owns the board and runs in one of three modes: `menu` (silent demo), `play` (a run, including the sandbox) and `gallery` (the lab's line-up). Other screens drive it through `startRun`, `startAttract`, `adopt` and `setFrameHook`.
 
 ## The developer lab (`ui/lab.ts`)
 
-- A tool for the user while developing, linked from the menu footer and `#lab`. Keep it working whenever towers, enemies or the Warden change.
+- A tool for the user while developing, opened at `#lab` (there is no link in the game). Keep it working whenever towers, enemies or the Warden change.
 - Gallery: every tower, every enemy and the Warden lined up on Ring Rampart, with buttons for level, branch, firing, hits, kills, statuses, the Warden's loadout and ability, a wave-strength slider and stat tables. Animations are triggered by nudging state (`cd`, `lastHit`, `castAt`), which the view picks up even while paused. "Live combat" unpauses with invulnerable, pinned dummies.
 - Sandbox: a normal run with `game.dev` switches (god mode, infinite gold, all towers), spawn buttons, fractional speed and frame stepping. A dev run never ends and never pays stardust.
+- Balance: runs the bots from `game/bots.ts` in 40 ms slices, with chips for maps, bots, run count and the Warden's weapon. Bots switch off the player's meta upgrades and ignore watch level, so results do not depend on the save.
 
 ## The Warden (the player's hero)
 
 - One per run, placed for free from the first belt medallion (hotkey H), levelled with gold (`heroUpgradeCost`), never sold. Logic in `game/hero.ts`, data in `data/hero.ts`, model `makeHero` in `three/models.ts`.
 - The user wants a customisable hero: everyone starts with the same kit and unlocks clothes, looks and abilities over time. The loadout is the build: the weapon decides the attack and the ability the player casts (Q or the ability seal), the charm adds a passive, and hat and cloak are looks only. Items and talents are bought with stardust in the Warden's Lodge (`ui/lodge.ts`) and stored in `save.hero`.
-- Balance is untuned: in bot runs the staff and sling Warden takes a large share of kills.
+- Balance (tuned with `npm run balance`): the default staff Warden deals about 15–17% of the damage with the mixed bot. The sling still takes about twice as many kills as damage, because it always shoots the shadow nearest the heart (targeting in `game/hero.ts`).
 
 ## Planning
 
@@ -68,4 +77,7 @@ Browser tower defense game, built with Vite and TypeScript. The game board is re
 
 ## Publishing
 
-The game is published as a private claude.ai Artifact at https://claude.ai/artifact/LjdboXzVdcQvxs4tFVmkTL. To update it, publish `dist/artifact.html` with that URL.
+- The public repository is github.com/sockulags/tower-defense. Every push to `main` runs `.github/workflows/pages.yml`, which runs `npm run build:pages` and deploys to https://sockulags.github.io/tower-defense/ as an installable web app.
+- The Pages build alone registers the service worker (`src/pwa.ts`), which caches every built file for offline play and shows an update note when a new deploy is waiting. `APP_VERSION` comes from `package.json`; bump it for releases.
+- Fonts are self-hosted woff2 files in `src/fonts/` (OFL); do not add Google Fonts links. App icons in `public/icons/` are rendered from the real heart model by `npm run icons` (needs local Chrome or Edge).
+- The game is also published as a private claude.ai Artifact at https://claude.ai/artifact/LjdboXzVdcQvxs4tFVmkTL. To update it, publish `dist/artifact.html` (from `npm run build`) with that URL.

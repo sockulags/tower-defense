@@ -5,8 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Duskwatch</title>
   <meta name="claude:viewport-fit-sides" content="cover">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alegreya+SC:wght@500;700;800&family=Alegreya+Sans:wght@400;500;700;800&display=swap">
+  <!-- Fonts are self-hosted (src/fonts, imported by src/pwa.ts). The Pages build adds the manifest and icons here. -->
 </head>
 <body>
   <!-- The board is always on screen: a live demo behind the menu, the player's run during play. -->
@@ -27,6 +26,8 @@
         <button class="orb" id="bMenu"></button>
         <div class="pop panel" id="menuPop" hidden>
           <button class="go" id="mResume"></button>
+          <button class="ghost" id="mSettings"></button>
+          <button class="ghost" id="mHowTo"></button>
           <button class="ghost danger" id="bQuit"></button>
         </div>
       </div>
@@ -37,6 +38,8 @@
       </div>
 
       <div class="toast panel" id="toast" hidden></div>
+      <!-- First-run hint bubble (src/ui/hints.ts) -->
+      <div class="hint panel" id="hint" role="status" hidden></div>
       <div class="banner" id="pausedBanner" hidden></div>
       <div class="tcard panel" id="card" hidden></div>
       <div class="tip panel" id="tip" hidden></div>
@@ -47,64 +50,26 @@
     <aside class="labpanel panel" id="lab" hidden></aside>
   </section>
 
+  <!-- The Warden's Lodge (src/ui/lodge.ts): tabs Warden, Talents and Workshop. -->
   <section id="lodge" class="screen" hidden>
     <div class="menu-inner">
-      <header class="masthead">
-        <div class="title-block">
-          <h1 id="lTitle"></h1>
-          <p class="ribbon" id="lIntro"></p>
-        </div>
-        <div class="watch panel">
-          <p class="dustline"><span class="ico" id="lDustIcon"></span><b class="num" id="lDust">0</b><span id="lDustLabel"></span></p>
-          <button class="go" id="lBack"></button>
-        </div>
+      <header class="fbar lodge-head">
+        <button class="ghost fback" id="lBack"></button>
+        <h1 id="lTitle"></h1>
+        <p class="dustline panel"><span class="ico" id="lDustIcon"></span><b class="num" id="lDust">0</b><span id="lDustLabel"></span></p>
       </header>
-      <div class="lodge-grid">
-        <div class="mirror panel"><img id="lPortrait" alt=""><h2 id="lName"></h2><p class="fine" id="lKit"></p></div>
-        <div class="lodge-slots" id="lSlots"></div>
-      </div>
+      <nav class="ltabs" id="lTabs" role="tablist"></nav>
+      <div id="lBody"></div>
     </div>
   </section>
 
+  <!-- The front door (src/ui/front.ts): title, mode choice, storybook and survival over the live demo. -->
   <section id="menu" class="screen">
-    <div class="menu-inner">
-      <header class="masthead">
-        <div class="title-block">
-          <h1 id="mTitle"></h1>
-          <p class="ribbon" id="mTag"></p>
-        </div>
-        <div class="watch panel">
-          <div class="watch-top">
-            <div><span class="eyebrow" id="mLevelLabel"></span><b class="lvl num" id="mLevel">1</b></div>
-            <div class="langs" id="mLang"></div>
-          </div>
-          <div class="bar"><i id="mBar"></i></div>
-          <p class="fine" id="mNext"></p>
-          <p class="dustline"><span class="ico" id="mDustIcon"></span><b class="num" id="mDust">0</b><span id="mDustLabel"></span></p>
-          <button class="go lodge-link" id="mLodge"><img id="mLodgeFace" alt=""><span id="mLodgeLabel"></span></button>
-        </div>
-      </header>
-
-      <section class="msec">
-        <h2 class="sec-title" id="mModesTitle"></h2>
-        <div class="modes" id="modes"></div>
-      </section>
-
-      <div class="msplit">
-        <section class="book panel">
-          <h2 id="mShopTitle"></h2>
-          <p class="fine" id="mShopIntro"></p>
-          <div class="shop" id="shop"></div>
-        </section>
-        <section class="book panel">
-          <h2 id="mCodexTitle"></h2>
-          <p class="fine" id="mCodexIntro"></p>
-          <div class="codex" id="codex"></div>
-        </section>
-      </div>
-      <footer class="menu-foot"><button class="ghost" id="mLab"></button></footer>
-    </div>
+    <div class="front" id="front"></div>
   </section>
+
+  <!-- Overlays (src/ui/settings.ts): settings, profiles, how to play and keyboard shortcuts. -->
+  <div class="sheet" id="sheet" hidden><div class="sheet-box panel" id="sheetBox" role="dialog" aria-modal="true" tabindex="-1"></div></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

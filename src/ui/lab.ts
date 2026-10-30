@@ -1,24 +1,28 @@
-// Developer lab, reached from the menu footer or #lab. Two tabs:
+// Developer lab, reached at #lab (no link in the game). Three tabs:
 // - Gallery: every tower, enemy and the Warden lined up on Ring Rampart, with buttons that
 //   trigger each animation and state, and stat tables for the chosen level and wave strength.
 // - Sandbox: an ordinary run with developer switches (infinite gold, god mode, all towers),
 //   spawn buttons, time controls and stepping.
+// - Balance: bot players (src/game/bots.ts) play whole runs headless and a table shows win rate,
+//   lives lost, gold earned and each tower's and the Warden's share of damage and kills.
 import { T } from '../config';
 import { ENEMIES } from '../data/enemies';
 import { CHARMS, CLOAKS, HATS, WEAPONS, type Loadout } from '../data/hero';
 import { MAP_ORDER } from '../data/maps';
 import { TOWERS, TOWER_ORDER } from '../data/towers';
+import { SOURCE_KEYS, STRATEGIES, batchJobs, playRun, summarize, type Report, type RunResult, type SourceKey, type StrategyId } from '../game/bots';
 import { heroStats, placeHero } from '../game/hero';
 import { createGame, spawnEnemy, startWave, update } from '../game/run';
 import { chooseBranch, needsBranch, placeTower, stats, upgrade } from '../game/towers';
 import { hpMultiplier } from '../game/waves';
-import { L } from '../i18n';
+import { setQuiet } from '../audio';
+import { L, fmt } from '../i18n';
 import { $ } from './dom';
 import { nav } from './nav';
 import { adopt, currentGame, currentView, renderBelt, setFrameHook, startRun } from './play';
 import type { Branch, EnemyType, Game, MapId, Tower } from '../types';
 
-type Tab = 'gallery' | 'sandbox';
+type Tab = 'gallery' | 'sandbox' | 'balance';
 
 const opts = {
   tab: 'gallery' as Tab,
@@ -31,6 +35,25 @@ const opts = {
   slow: false, burn: false, stun: false,
   map: 'mill' as MapId,
   loadout: { weapon: 'staff', charm: 'badge', hat: 'hood', cloak: 'moss' } as Loadout,
+  balance: {
+    maps: ['mill', 'marsh'] as MapId[],
+    strategies: ['mixed', 'spread', 'spark', 'star', 'warden'] as StrategyId[],
+    runs: 10,
+    weapon: 'staff' as Loadout['weapon'],
+  },
+};
+
+/** Survival maps never end, so balance bots stop after this many waves. */
+const SURVIVAL_WAVES = 40;
+
+/** The balance batch in progress, or the last one finished. */
+const bal = {
+  running: false,
+  done: 0,
+  total: 0,
+  seconds: 0,
+  reports: [] as Report[],
+  timer: 0,
 };
 
 const ENEMY_ORDER = Object.keys(ENEMIES) as EnemyType[];
@@ -44,10 +67,11 @@ const ROW_Y = 2.5;
 export function showLab() {
   $('menu').hidden = true;
   $('lab').hidden = false;
-  if (opts.tab === 'gallery') startGallery(); else startSandbox();
+  if (opts.tab === 'sandbox') startSandbox(); else startGallery();
 }
 
 export function hideLab() {
+  stopBalance();
   $('lab').hidden = true;
   setFrameHook(null);
   currentView().setFocus(null);
@@ -121,16 +145,24 @@ function render() {
   const tabs = `<div class="labtabs">
       <button class="chip ${opts.tab === 'gallery' ? 'on' : ''}" data-tab="gallery">${lab.gallery}</button>
       <button class="chip ${opts.tab === 'sandbox' ? 'on' : ''}" data-tab="sandbox">${lab.sandbox}</button>
+      <button class="chip ${opts.tab === 'balance' ? 'on' : ''}" data-tab="balance">${lab.balance.tab}</button>
       <button class="ghost" id="labBack">${lab.back}</button>
       <button class="orb small" id="labFold" aria-label="${opts.folded ? lab.unfold : lab.fold}" title="${opts.folded ? lab.unfold : lab.fold}">${opts.folded ? '‹' : '›'}</button>
     </div>`;
   panel.classList.toggle('folded', opts.folded);
-  panel.innerHTML = tabs + (opts.tab === 'gallery' ? galleryHtml() : sandboxHtml());
+  panel.classList.toggle('wide', opts.tab === 'balance');
+  panel.innerHTML = tabs + (opts.tab === 'gallery' ? galleryHtml() : opts.tab === 'sandbox' ? sandboxHtml() : balanceHtml());
   $('labFold').onclick = () => { opts.folded = !opts.folded; render(); };
   panel.querySelectorAll<HTMLButtonElement>('[data-tab]').forEach((b) => {
-    b.onclick = () => { opts.tab = b.dataset.tab as Tab; showLab(); };
+    b.onclick = () => {
+      // The gallery and the balance tab share the same board, so switching between them only redraws the panel.
+      const sameBoard = (opts.tab === 'sandbox') === (b.dataset.tab === 'sandbox');
+      opts.tab = b.dataset.tab as Tab;
+      if (sameBoard) render(); else showLab();
+    };
   });
   $('labBack').onclick = () => nav.menu();
+  if (opts.tab === 'balance') { wireBalance(); return; }
   if (!g) return;
   if (opts.tab === 'gallery') wireGallery(g); else wireSandbox(g);
 }
@@ -258,4 +290,128 @@ function wireSandbox(g: Game) {
   panel.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach((b) => { b.onclick = () => { g.speed = Number(b.dataset.speed); render(); }; });
   $('dPause').onclick = () => { g.paused = !g.paused; render(); };
   $('dStep').onclick = () => { g.paused = true; update(g, 1 / 60); render(); };
+}
+
+// ---------- balance ----------
+
+const strategyName = (id: StrategyId) => {
+  const s = L(), names = s.lab.balance.strategy;
+  if (id === 'mixed' || id === 'spread' || id === 'warden') return names[id];
+  return names[id](s.towers[id].name);
+};
+
+/** Plays the chosen batch in short slices so the page stays responsive, then shows the tables. */
+function runBalance() {
+  stopBalance();
+  const o = opts.balance, runs = o.runs;
+  const groups = batchJobs({
+    maps: o.maps, strategies: o.strategies, runs, survivalWaves: SURVIVAL_WAVES,
+    loadout: { ...opts.loadout, weapon: o.weapon, charm: 'none' },
+  });
+  const jobs = groups.flat(), results: RunResult[][] = groups.map(() => []);
+  if (!jobs.length) return;
+  Object.assign(bal, { running: true, done: 0, total: jobs.length, reports: [], seconds: 0 });
+  const started = performance.now();
+  const step = () => {
+    const slice = performance.now();
+    // Bots must stay silent. The lab itself plays sound, so it is switched back on after each slice.
+    setQuiet(true);
+    try {
+      while (bal.done < jobs.length && performance.now() - slice < 40) {
+        results[Math.floor(bal.done / runs)].push(playRun(jobs[bal.done]));
+        bal.done++;
+      }
+    } finally {
+      setQuiet(false);
+    }
+    if (bal.done < jobs.length) {
+      updateProgress();
+      bal.timer = window.setTimeout(step, 0);
+      return;
+    }
+    bal.running = false;
+    bal.seconds = (performance.now() - started) / 1000;
+    bal.reports = results.map(summarize);
+    if (opts.tab === 'balance' && !$('lab').hidden) render();
+  };
+  render();
+  bal.timer = window.setTimeout(step, 0);
+}
+
+function stopBalance() {
+  window.clearTimeout(bal.timer);
+  bal.running = false;
+}
+
+function updateProgress() {
+  const el = document.getElementById('balProgress');
+  if (el) el.textContent = L().lab.balance.running(Math.min(bal.done + 1, bal.total), bal.total);
+}
+
+/** A small line of the gold earned by each wave. */
+function goldLine(values: number[]) {
+  if (values.length < 2) return '';
+  const w = 64, h = 16, hi = Math.max(...values), lo = Math.min(...values), span = hi - lo || 1;
+  const pts = values.map((v, i) => `${((i / (values.length - 1)) * w).toFixed(1)},${(h - 1 - ((v - lo) / span) * (h - 2)).toFixed(1)}`).join(' ');
+  return `<svg class="goldline" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true"><polyline points="${pts}"/></svg>`;
+}
+
+const pct = (v: number) => `${Math.round(v * 100)}%`;
+
+function balanceTable(map: MapId) {
+  const s = L(), b = s.lab.balance, c = b.col;
+  const reps = bal.reports.filter((r) => r.map === map);
+  if (!reps.length) return '';
+  const survival = reps[0].survival;
+  const source = (k: SourceKey) => (k === 'hero' ? s.hero.name : s.towers[k].name);
+  const body = reps.map((r) => row([
+    strategyName(r.strategy), survival ? '–' : pct(r.winRate), r.cleared.toFixed(1), r.livesLost.toFixed(1),
+    ...SOURCE_KEYS.map((k) => `${pct(r.damage[k])} / ${pct(r.kills[k])}`),
+    `<span class="gold">${goldLine(r.worth)}${fmt(r.worth[r.worth.length - 1] ?? 0)}</span>`,
+  ])).join('');
+  return `
+    <section>
+      <h3>${s.maps[map].name}</h3>
+      ${survival ? `<p class="labnote">${b.survival(SURVIVAL_WAVES)}</p>` : ''}
+      <div class="labscroll"><table class="baltable">
+        <tr><th rowspan="2">${c.bot}</th><th rowspan="2">${c.win}</th><th rowspan="2">${c.waves}</th><th rowspan="2">${c.lives}</th><th colspan="${SOURCE_KEYS.length}">${c.share}</th><th rowspan="2">${c.earned}</th></tr>
+        <tr>${SOURCE_KEYS.map((k) => `<th>${source(k)}</th>`).join('')}</tr>
+        ${body}
+      </table></div>
+    </section>`;
+}
+
+function balanceHtml() {
+  const s = L(), lab = s.lab, b = lab.balance, o = opts.balance;
+  const chip = (attr: string, value: string | number, label: string, on: boolean) =>
+    `<button class="chip ${on ? 'on' : ''}" ${attr}="${value}" ${bal.running ? 'disabled' : ''}>${label}</button>`;
+  const runs = bal.reports.reduce((n, r) => n + r.runs, 0);
+  const status = bal.running
+    ? `<span id="balProgress">${b.running(Math.min(bal.done + 1, bal.total), bal.total)}</span><button class="ghost" id="balStop">${b.stop}</button>`
+    : `<button class="go small" id="balRun" ${o.maps.length && o.strategies.length ? '' : 'disabled'}>${b.run}</button>${runs ? `<span class="labnote">${b.done(runs, bal.seconds)}</span>` : ''}`;
+  return `
+    <section>
+      <p class="labnote">${b.intro}</p>
+      <div class="labrow"><span>${b.maps}</span>${MAP_ORDER.map((id) => chip('data-bmap', id, s.maps[id].name, o.maps.includes(id))).join('')}</div>
+      <div class="labrow"><span>${b.strategies}</span>${STRATEGIES.map((id) => chip('data-bstrat', id, strategyName(id), o.strategies.includes(id))).join('')}</div>
+      <div class="labrow"><span>${b.runs}</span>${[5, 10, 25, 50].map((n) => chip('data-bruns', n, String(n), o.runs === n)).join('')}</div>
+      <div class="labrow"><span>${lab.warden}</span>${(Object.keys(WEAPONS) as Loadout['weapon'][]).map((w) => chip('data-bweapon', w, s.hero.weapons[w].name, o.weapon === w)).join('')}</div>
+      <div class="labrow">${status}</div>
+    </section>
+    ${bal.running ? '' : MAP_ORDER.map(balanceTable).join('')}`;
+}
+
+function wireBalance() {
+  const panel = $('lab'), o = opts.balance;
+  const flip = <V>(list: V[], v: V) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
+  panel.querySelectorAll<HTMLButtonElement>('[data-bmap]').forEach((b) => {
+    b.onclick = () => { const next = flip(o.maps, b.dataset.bmap as MapId); o.maps = MAP_ORDER.filter((m) => next.includes(m)); render(); };
+  });
+  panel.querySelectorAll<HTMLButtonElement>('[data-bstrat]').forEach((b) => {
+    b.onclick = () => { const next = flip(o.strategies, b.dataset.bstrat as StrategyId); o.strategies = STRATEGIES.filter((x) => next.includes(x)); render(); };
+  });
+  panel.querySelectorAll<HTMLButtonElement>('[data-bruns]').forEach((b) => { b.onclick = () => { o.runs = Number(b.dataset.bruns); render(); }; });
+  panel.querySelectorAll<HTMLButtonElement>('[data-bweapon]').forEach((b) => { b.onclick = () => { o.weapon = b.dataset.bweapon as Loadout['weapon']; render(); }; });
+  document.getElementById('balRun')?.addEventListener('click', runBalance);
+  document.getElementById('balStop')?.addEventListener('click', () => { stopBalance(); render(); });
 }
