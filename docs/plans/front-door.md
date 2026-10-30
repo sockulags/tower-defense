@@ -1,6 +1,6 @@
 # Front door: from opening the page to playing
 
-Status: decided, not built yet. The user will start this as one larger change.
+Status: built.
 
 ## Goal
 

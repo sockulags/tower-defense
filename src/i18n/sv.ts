@@ -111,7 +111,7 @@ export const sv: Strings = {
       { name: 'Splitter', desc: 'Nedslaget skickar fem splitter till fiender i närheten.' },
     ] },
     // the fifth tower
-    kite: { name: 'Himlakrok', desc: 'Harpuner på långt håll som träffar flygare dubbelt så hårt.', branches: [
+    kite: { name: 'Himlakrok', desc: 'Harpuner på långt håll som träffar flygare extra hårt.', branches: [
       { name: 'Drakflock', desc: 'Harpunerar tre flygare åt gången, hårt. Kan inte längre träffa marken.' },
       { name: 'Valfångare', desc: 'En enorm, långsammare harpun med längre räckvidd som slår igenom rustning.' },
     ] },
@@ -367,7 +367,7 @@ export const sv: Strings = {
     list: {
       sparkPower: { name: 'Heta trådar', desc: 'Gnisttorn gör 30 % mer skada.' },
       sparkReach: { name: 'Lång stubin', desc: 'Gnisttorn når 25 % längre och skjuter 10 % snabbare.' },
-      rimeReach: { name: 'Krypande frost', desc: 'Rimfrosttorn når 45 % längre.' },
+      rimeReach: { name: 'Krypande frost', desc: 'Rimfrosttorn når 45 % längre och skjuter 15 % snabbare.' },
       rimeFrostbite: { name: 'Köldskada', desc: 'Rimfrosttorn gör 20 % mer skada och har 18 % chans att frysa en skugga helt.' },
       emberKindle: { name: 'Tändved', desc: 'Varje Glödpuls sätter skuggorna den träffar i brand.' },
       emberQuick: { name: 'Blåsbälg', desc: 'Glödpulstorn pulserar 20 % snabbare och når 15 % längre.' },

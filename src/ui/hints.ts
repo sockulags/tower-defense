@@ -6,7 +6,18 @@ import { L } from '../i18n';
 import { hintDone, markHint } from '../save';
 import { ICONS } from './icons';
 import { $ } from './dom';
+import { currentView } from './play';
 import type { Game } from '../types';
+
+interface Box { left: number; top: number; width: number; bottom: number }
+
+/** A small box around a tower as it appears on screen. */
+function towerBox(g: Game): Box | null {
+  const t = g.towers.find((t) => canUpgrade(g, t)) ?? g.towers[0];
+  if (!t) return null;
+  const p = currentView().screenOf(t.x, t.y, 1.6);
+  return { left: p.sx - 24, top: p.sy - 24, width: 48, bottom: p.sy + 24 };
+}
 
 type HintId = 'build' | 'wave' | 'upgrade' | 'warden';
 
@@ -16,8 +27,8 @@ interface Hint {
   done: (g: Game) => boolean;
   /** True when the moment for the hint has come. */
   ready: (g: Game) => boolean;
-  /** The element the bubble points at. */
-  anchor: () => Element | null;
+  /** What the bubble points at: an element, or a box on screen (a tower on the board). */
+  anchor: (g: Game) => Element | Box | null;
 }
 
 const HINTS: Hint[] = [
@@ -27,7 +38,8 @@ const HINTS: Hint[] = [
     id: 'upgrade',
     done: (g) => g.towers.some((t) => t.level > 1),
     ready: (g) => g.wave > 0 && g.towers.some((t) => canUpgrade(g, t)),
-    anchor: () => $('belt'),
+    // The text says to tap a tower and press +, so the bubble points at the tower.
+    anchor: towerBox,
   },
   {
     id: 'warden',
@@ -70,7 +82,7 @@ function tick() {
   if (!next) { stopHints(); return; }
   if (!next.ready(g) || g.paused) { hide(); return; }
   if (showing !== next.id) show(next);
-  place(next);
+  place(next, g);
 }
 
 function show(h: Hint) {
@@ -82,10 +94,10 @@ function show(h: Hint) {
 }
 
 /** Keeps the bubble just above what it talks about, inside the window. */
-function place(h: Hint) {
-  const el = $('hint'), a = h.anchor();
+function place(h: Hint, g: Game) {
+  const el = $('hint'), a = h.anchor(g);
   if (!a) return;
-  const r = a.getBoundingClientRect();
+  const r = a instanceof Element ? a.getBoundingClientRect() : a;
   const w = el.offsetWidth, ht = el.offsetHeight;
   const left = Math.max(12, Math.min(window.innerWidth - w - 12, r.left + r.width / 2 - w / 2));
   // Above the target when there is room under the top bar, otherwise below it, so the bubble

@@ -109,7 +109,7 @@ export const en = {
       { name: 'Shrapnel', desc: 'The impact sends five shards to nearby enemies.' },
     ] },
     // the fifth tower
-    kite: { name: 'Skyhook', desc: 'Long-range harpoons that hit flyers twice as hard.', branches: [
+    kite: { name: 'Skyhook', desc: 'Long-range harpoons that hit flyers extra hard.', branches: [
       { name: 'Kite Flock', desc: 'Harpoons three flyers at once, hard. Can no longer hit the ground.' },
       { name: 'Whaler', desc: 'One huge, slower harpoon with longer reach that punches through armour.' },
     ] },
@@ -370,7 +370,7 @@ export const en = {
     list: {
       sparkPower: { name: 'Hot Wires', desc: 'Spark towers deal 30% more damage.' },
       sparkReach: { name: 'Long Fuse', desc: 'Spark towers reach 25% further and fire 10% faster.' },
-      rimeReach: { name: 'Creeping Frost', desc: 'Rime towers reach 45% further.' },
+      rimeReach: { name: 'Creeping Frost', desc: 'Rime towers reach 45% further and shoot 15% faster.' },
       rimeFrostbite: { name: 'Frostbite', desc: 'Rime towers deal 20% more damage, with an 18% chance to freeze a shadow solid.' },
       emberKindle: { name: 'Kindling', desc: 'Every Ember Pulse sets the shadows it hits burning.' },
       emberQuick: { name: 'Bellows', desc: 'Ember Pulse towers pulse 20% faster and reach 15% further.' },

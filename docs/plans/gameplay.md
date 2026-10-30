@@ -1,6 +1,6 @@
 # Gameplay plan: from a working game to a deep one
 
-Status: approved by the user, not built yet. The start of the game (title, storybook,
+Status: built (phases 1-9; the mills of the economy experiment stay lab-only until the user decides). Final numbers are in `balance-notes.md`. The start of the game (title, storybook,
 survival, Lodge, settings, profiles, hover upgrade and upgrade preview) is planned separately in
 `front-door.md`; this plan covers what happens on the board.
 

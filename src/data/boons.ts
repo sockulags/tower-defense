@@ -74,9 +74,9 @@ export const BOONS: Record<BoonId, BoonDef> = {
   // Towers
   sparkPower: { kind: 'tower', tower: 'spark', towerMods: { dmg: 0.3 }, color: '#ffd27a' },
   sparkReach: { kind: 'tower', tower: 'spark', towerMods: { range: 0.25, rate: 0.1 }, color: '#ffd27a' },
-  rimeReach: { kind: 'tower', tower: 'frost', towerMods: { range: 0.45 }, color: '#8fd3ff' },
+  rimeReach: { kind: 'tower', tower: 'frost', towerMods: { range: 0.45, rate: 0.15 }, color: '#8fd3ff' },
   rimeFrostbite: { kind: 'tower', tower: 'frost', add: { freeze: 0.18 }, towerMods: { dmg: 0.2 }, color: '#8fd3ff' },
-  emberKindle: { kind: 'tower', tower: 'pulse', add: { kindle: 0.35 }, color: '#ff6b3d' },
+  emberKindle: { kind: 'tower', tower: 'pulse', add: { kindle: 0.5 }, color: '#ff6b3d' },
   emberQuick: { kind: 'tower', tower: 'pulse', towerMods: { rate: 0.2, range: 0.15 }, color: '#ff6b3d' },
   starWide: { kind: 'tower', tower: 'star', add: { splash: 0.35 }, color: '#c7a6ff' },
   starPower: { kind: 'tower', tower: 'star', towerMods: { dmg: 0.25 }, color: '#c7a6ff' },
@@ -91,7 +91,7 @@ export const BOONS: Record<BoonId, BoonDef> = {
   wardenMight: { kind: 'warden', add: { heroDmg: 0.35 }, color: '#7fc28a' },
   wardenReach: { kind: 'warden', add: { heroRange: 0.3, heroRate: 0.15 }, color: '#7fc28a' },
   // Statuses and the watch
-  hotBurn: { kind: 'status', add: { burnDmg: 1, kindle: 0.12 }, color: '#e8735a' },
+  hotBurn: { kind: 'status', add: { burnDmg: 1, kindle: 0.2 }, color: '#e8735a' },
   deepChill: { kind: 'status', add: { slow: 0.08, chillTime: 0.5 }, color: '#6fb8e8' },
   sunder: { kind: 'status', add: { sunder: 0.5 }, color: '#b9a37a' },
   hearth: { kind: 'status', lives: 6, color: '#ff8f8f' },

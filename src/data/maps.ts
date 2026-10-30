@@ -160,12 +160,12 @@ const FORK: WaveSpec[] = [
 export const MAPS: Record<MapId, MapDef> = {
   mill: { id: 'mill', waves: 20, hard: 1, seed: 7, waveList: MILL,
     pts: [[-1, 2], [4, 2], [4, 7], [9, 7], [9, 2], [13, 2], [13, 7], [15, 7]] },
-  marsh: { id: 'marsh', waves: 25, hard: 1.2, seed: 21, waveList: MARSH,
+  marsh: { id: 'marsh', waves: 25, hard: 1.25, seed: 21, waveList: MARSH,
     pts: [[-1, 8], [3, 8], [3, 1], [7, 1], [7, 8], [11, 8], [11, 4], [15, 4]] },
   ring: { id: 'ring', waves: Infinity, hard: 1, seed: 3, survival: true, waveList: RING,
     pts: [[-1, 1], [14, 1], [14, 8], [1, 8], [1, 4], [10, 4]] },
   // ---------- terrain and rifts that move ----------
-  ford: { id: 'ford', waves: 20, hard: 1.3, seed: 11, waveList: FORD,
+  ford: { id: 'ford', waves: 20, hard: 1.34, seed: 11, waveList: FORD,
     pts: [[-1, 1], [4, 1], [4, 8], [10, 8], [10, 1], [15, 1]],
     terrain: {
       water: [[-1, 4.11, 0.8], [0.25, 4.48, 0.8], [1.5, 4.8, 0.8], [2.75, 4.95, 0.8], [4, 4.84, 0.8], [5.25, 4.54, 0.8], [6.5, 4.17, 0.8],

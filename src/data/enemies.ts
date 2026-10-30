@@ -28,7 +28,7 @@ export const ENEMIES: Record<EnemyType, EnemyDef> = {
   // - Mender: mends. It heals every shadow around it (other bosses excepted) unless it is burning, so it must be focused
   //   down (or set alight) before its escort.
   // Bosses take half the slow and cannot be frozen, like the giant.
-  stomper: { hp: 1150, speed: 0.4, reward: 90, leak: 6, r: 0.5, color: '#5a2f6e', eye: '#f2ff7a', traits: ['armoured'], armour: 7,
+  stomper: { hp: 1100, speed: 0.4, reward: 90, leak: 6, r: 0.5, color: '#5a2f6e', eye: '#f2ff7a', traits: ['armoured'], armour: 7,
     boss: { stomp: { every: 4, radius: 2, knock: 3.3 } } },
   thief: { hp: 680, speed: 0.6, reward: 70, leak: 4, r: 0.4, color: '#7d3a8c', eye: '#f2ff7a', traits: ['sprints'], sprint: { mult: 2.4, dur: 0.9, every: 3 },
     boss: { steal: { at: 0.5, share: 0.6, max: 60, perWave: 8, flee: 1.7 } } },

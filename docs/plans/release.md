@@ -1,6 +1,6 @@
 # Release plan: GitHub Pages and an installable app for friends and family
 
-Status: decided by the user, not built yet. Goal: friends and family open a link on
+Status: built and live at https://sockulags.github.io/tower-defense/. Goal: friends and family open a link on
 their phone, add the game to the home screen, play it like an app, and tell the user what they
 think in person. There is no feedback form; the user collects opinions privately.
 

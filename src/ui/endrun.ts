@@ -16,7 +16,7 @@ export function renderEnd(box: HTMLElement, g: Game, r: RunResult, gaveUp: boole
   const s = L(), f = s.front, m = g.map;
   let h = `<div class="big">${r.win ? s.end.win : gaveUp ? s.end.gaveUp : s.end.lose}</div>`;
   h += `<p>${m.survival ? s.end.survived(r.cleared) : s.end.clearedOf(r.cleared, m.waves)}${r.newBest && r.cleared > 0 ? ' ' + s.end.record : ''}</p>`;
-  h += `<p class="dust">${s.end.dust(r.dust)}</p>`;
+  if (r.dust > 0) h += `<p class="dust">${s.end.dust(r.dust)}</p>`;
   if (r.hero && r.hero.dealt > 0) {
     const who = r.hero.level >= NAMED_LEVEL ? `${nickname(r.hero)} (${s.towers[r.hero.type].name})` : s.towers[r.hero.type].name;
     h += `<p class="fine">${s.end.hero(who, r.hero.level, r.hero.kills)}</p>`;
