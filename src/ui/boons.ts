@@ -1,5 +1,5 @@
-// Boons between waves in the UI: the three cards of a choice, and the small row of taken boons on
-// the resource plaque. The rules live in src/game/boons.ts and the numbers in src/data/boons.ts;
+// Boons between waves in the UI: the three cards of a choice, and the small row of taken boons
+// beside the resource plaque. The rules live in src/game/boons.ts and the numbers in src/data/boons.ts;
 // src/ui/play.ts decides when these show.
 import { BOONS, type BoonId } from '../data/boons';
 import { heroPortrait, towerPortraits } from '../three/view';

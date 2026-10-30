@@ -78,7 +78,6 @@ export const sv: Strings = {
     clearedOf: (cleared, total) => `${cleared} av ${total} vågor klarade.`,
     record: 'Nytt rekord!',
     dust: (n) => `+${n} stjärnstoft`,
-    hero: (who, level, kills) => `Kvällens hjälte: ${who} på nivå ${level}, med ${kills} ${kills === 1 ? 'fälld skugga' : 'fällda skuggor'}.`,
     newLevel: (n) => `Vaktnivå ${n}!`,
     newTower: (name) => `Nytt torn: ${name}`,
   },
@@ -279,7 +278,7 @@ export const sv: Strings = {
       { title: 'Ta med Väktaren', text: 'Placera Väktaren en gång per omgång, gratis. Tryck på sigillet för förmågan.' },
     ],
     hints: {
-      build: 'Välj ett torn i bältet och tryck sedan på gräset bredvid vägen.',
+      build: 'Dra ett torn från bältet till gräset bredvid vägen.',
       wave: 'Redo? Blås i hornet för att kalla på första vågen.',
       upgrade: 'Tryck på ett av dina torn och på + för att göra det starkare.',
       warden: 'Väktaren är gratis. Välj första medaljongen och placera hen nära vägen.',

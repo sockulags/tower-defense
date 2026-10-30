@@ -37,6 +37,8 @@ const HINTS: Hint[] = [
   },
 ];
 
+const SHORT = window.matchMedia('(max-height: 500px)');
+
 let game: Game | null = null;
 let timer = 0;
 let showing: HintId | null = null;
@@ -68,7 +70,8 @@ function tick() {
   for (const h of HINTS) if (!hintDone(h.id) && h.done(g)) markHint(h.id);
   const next = HINTS.find((h) => !hintDone(h.id));
   if (!next) { stopHints(); return; }
-  if (!next.ready(g) || g.paused) { hide(); return; }
+  // On a short screen the open tower card has the floor; the hint waits until it closes.
+  if (!next.ready(g) || g.paused || (SHORT.matches && !$('card').hidden)) { hide(); return; }
   if (showing !== next.id) show(next);
   place(next);
 }
@@ -81,12 +84,26 @@ function show(h: Hint) {
   $('hintX').onclick = () => { markHint(h.id); hide(); tick(); };
 }
 
-/** Keeps the bubble just above what it talks about, inside the window. */
+/** Keeps the bubble just above what it talks about (beside it on short screens), inside the window. */
 function place(h: Hint) {
   const el = $('hint'), a = h.anchor();
   if (!a) return;
   const r = a.getBoundingClientRect();
   const w = el.offsetWidth, ht = el.offsetHeight;
+  if (SHORT.matches) {
+    // A phone held sideways: the controls stand in side columns, so the bubble sits beside its
+    // target, level with the target's top, and points sideways at it.
+    const right = r.left + r.width / 2 > window.innerWidth / 2;
+    const left = right ? r.left - w - 14 : r.right + 14;
+    const top = Math.max(8, Math.min(window.innerHeight - ht - 8, r.top));
+    el.classList.remove('below');
+    el.classList.toggle('side-l', right);
+    el.classList.toggle('side-r', !right);
+    el.style.transform = `translate(${Math.round(Math.max(8, left))}px, ${Math.round(top)}px)`;
+    el.style.setProperty('--tail', `${Math.round(Math.max(14, Math.min(ht - 14, Math.min(r.height, 60) / 2 + r.top - top)))}px`);
+    return;
+  }
+  el.classList.remove('side-l', 'side-r');
   const left = Math.max(12, Math.min(window.innerWidth - w - 12, r.left + r.width / 2 - w / 2));
   // Above the target when there is room under the top bar, otherwise below it, so the bubble
   // never covers what it points at.
