@@ -31,6 +31,9 @@ export const C = {
   inkLump: '#93406f', bone: '#e2d4b6', inkVeil: '#5f86e8', inkGiant: '#3d2266', horn: '#2a1838',
   eye: '#f2ff7a', eyeHot: '#ff4a4a', mouth: '#ff4f8b', pupil: '#120a1c',
   inkBlot: '#6a3a9e', inkBlotBud: '#9c6ad8', inkDasher: '#b03f86', inkDasherBelly: '#e48cc2',
+  // bosses
+  inkStomper: '#4e2a6e', inkStomperBelly: '#8a5aa8', inkThief: '#7d3a8c', inkThiefCloak: '#4a2556', sack: '#c9a36a',
+  inkMender: '#6b3f9e', inkMenderTrim: '#c25aa8', mendLight: '#d8ff7a',
 };
 
 // ---------- materials ----------
@@ -861,7 +864,149 @@ const dasher: EnemyBuilder = (body, r) => {
   }
 };
 
-const ENEMY_BUILDERS: Record<EnemyType, EnemyBuilder> = { crawler, flitter, lump, shimmer, splitter, speck, dasher, giant };
+// ---------- bosses ----------
+// Each boss is a big Gloom shadow with one mechanic the view animates (src/three/view.ts):
+// the Stomper lifts a leg and slams it down, the Thief carries a 'sack' that fills with gold, and
+// the Mender raises its arms and flares its lantern 'core' and its ring of light ('shield').
+
+/**
+ * Stomper: a squat, armour-plated hulk on two pillar legs ('footL'/'footR') that it lifts and
+ * slams down. Small arms ('armL'/'armR'), a heavy underbite ('jaw') and eyes high on the front.
+ */
+const stomper: EnemyBuilder = (body, r) => {
+  mesh(sph(r, 26, 18), toon(C.inkStomper), body, 0, r * 0.05, 0, 'skin').scale.set(1.1, 0.88, 1.08);
+  mesh(sph(r * 0.7, 18, 12), toon(C.inkStomperBelly), body, r * 0.45, -r * 0.18, 0).scale.set(0.55, 0.75, 1.1);
+  // Armour: a ridge of bone plates down the back, and a brow plate over the eyes.
+  for (let i = 0; i < 4; i++) {
+    const p = mesh(sph(r * 0.36, 12, 8), toon(C.bone), body, -r * 0.15 - i * r * 0.24, r * 0.78 - i * r * 0.2, 0);
+    p.scale.set(1.1, 0.42, 1.25);
+    p.rotation.z = 0.35 + i * 0.25;
+  }
+  const brow = mesh(box(r * 0.3, r * 0.14, r * 0.95), toon(C.bone), body, r * 0.66, r * 0.62, 0);
+  brow.rotation.z = -0.35;
+  eyes(body, r, 0.15, 0.26, 0.44);
+  const jaw = group(body, 'jaw', r * 0.82, -r * 0.12, 0);
+  mesh(box(r * 0.3, r * 0.2, r * 0.72), toon(C.horn), jaw);
+  for (let k = 0; k < 2; k++) {
+    const tusk = mesh(cone(r * 0.07, r * 0.3, 8), toon(C.bone), jaw, r * 0.08, r * 0.2, (k ? 1 : -1) * r * 0.26);
+    tusk.rotation.z = -0.15;
+  }
+  for (const side of [1, -1]) {
+    const arm = group(body, side > 0 ? 'armL' : 'armR', r * 0.2, r * 0.05, side * r * 0.98);
+    mesh(capsule(r * 0.14, r * 0.35), toon(C.inkStomper), arm, 0, -r * 0.28, 0);
+    mesh(sph(r * 0.2, 12, 10), toon(C.horn), arm, 0.02, -r * 0.6, 0);
+    // Pillar legs, each with a wide flat foot and three toenails.
+    const leg = group(body, side > 0 ? 'footL' : 'footR', 0, -r * 0.62, side * r * 0.5);
+    mesh(cyl(r * 0.26, r * 0.3, r * 0.5, 14), toon(C.inkStomper), leg, 0, -r * 0.1, 0);
+    mesh(cyl(r * 0.36, r * 0.38, r * 0.16, 16), toon(C.horn), leg, r * 0.04, -r * 0.36, 0);
+    for (let k = 0; k < 3; k++) mesh(sph(r * 0.07, 8, 6), toon(C.bone), leg, r * 0.36, -r * 0.36, (k - 1) * r * 0.16);
+  }
+};
+
+/**
+ * Thief: a lean, hunched shadow in a hood ('cloak') with a bandit's mask, long grabbing arms
+ * ('armL'/'armR') and quick feet. Its 'sack' sits on its back, hidden until it has stolen gold.
+ */
+const thief: EnemyBuilder = (body, r) => {
+  mesh(capsule(r * 0.62, r * 0.55), toon(C.inkThief), body, 0, 0, 0, 'skin').scale.set(1, 1, 0.9);
+  const cloak = group(body, 'cloak');
+  // A pointed hood flopping back over the head, open at the face.
+  const hood = mesh(cone(r * 0.62, r * 1.05, 16), toon(C.inkThiefCloak), cloak, -r * 0.2, r * 0.92, 0);
+  hood.rotation.z = 0.55;
+  mesh(sph(r * 0.66, 18, 12), toon(C.inkThiefCloak), cloak, -r * 0.08, r * 0.35, 0).scale.set(0.95, 0.85, 1.05);
+  // The mask: a dark band across the face with two bright, shifty eyes.
+  mesh(cyl(r * 0.64, r * 0.64, r * 0.2, 20), toon(C.pupil), body, 0, r * 0.35, 0);
+  eyes(body, r * 0.7, 0.24, 0.36, 0.5);
+  const grin = mesh(torus(r * 0.2, r * 0.04, Math.PI, 14), glow(C.mouth, 1.2), body, r * 0.6, r * 0.02, 0);
+  grin.rotation.set(0, Math.PI / 2, Math.PI);
+  for (const side of [1, -1]) {
+    const arm = group(body, side > 0 ? 'armL' : 'armR', r * 0.15, r * 0.2, side * r * 0.62);
+    mesh(capsule(r * 0.1, r * 0.6), toon(C.inkThief), arm, r * 0.05, -r * 0.4, 0);
+    for (let k = 0; k < 3; k++) {
+      const finger = mesh(cone(r * 0.04, r * 0.18, 6), toon(C.horn), arm, r * 0.14, -r * 0.82, (k - 1) * r * 0.06);
+      finger.rotation.z = -Math.PI / 2 - 0.5;
+    }
+    mesh(sph(r * 0.2, 12, 8), toon(C.horn), body, r * 0.12, -r * 0.82, side * r * 0.3, side > 0 ? 'footL' : 'footR').scale.set(1.5, 0.55, 0.9);
+  }
+  // The loot sack: a lumpy bag tied with brass, coins peeking out of its neck.
+  const sack = group(body, 'sack', -r * 0.75, r * 0.3, 0);
+  mesh(sph(r * 0.48, 16, 12), toon(C.sack), sack).scale.set(0.95, 1, 1.05);
+  mesh(cyl(r * 0.12, r * 0.18, r * 0.2, 10), toon(C.sack), sack, r * 0.05, r * 0.5, 0);
+  mesh(torus(r * 0.15, r * 0.035), toon(C.brass), sack, r * 0.05, r * 0.45, 0).rotation.x = Math.PI / 2;
+  for (let k = 0; k < 3; k++) {
+    const coin = mesh(cyl(r * 0.1, r * 0.1, r * 0.03, 12), gem(C.gem, 0.5), sack, r * (0.02 + k * 0.05), r * (0.64 + k * 0.03), (k - 1) * r * 0.1);
+    coin.rotation.x = 0.6 + k * 0.5;
+  }
+  sack.visible = false;
+};
+
+/**
+ * Mender: a tall robed shadow that floats over the road, holding up a lantern of yellow-green
+ * Gloom light ('core'). The robe sways ('cloak'), the arms ('armL'/'armR') rise when it mends,
+ * and a ring of light ('shield') blooms out around it.
+ */
+const mender: EnemyBuilder = (body, r) => {
+  const profile = [[0, r * 1.1], [r * 0.4, r * 1.0], [r * 0.55, r * 0.55], [r * 0.62, 0], [r * 0.8, -r * 0.6], [r * 0.98, -r * 1.0], [r * 0.8, -r * 0.95], [0, -r * 0.8]]
+    .map(([x, y]) => new THREE.Vector2(x, y)).reverse();
+  const cloak = group(body, 'cloak');
+  mesh(new THREE.LatheGeometry(profile, 22), toon(C.inkMender), cloak, 0, 0, 0, 'skin');
+  // Stitched hem and a sash: the Mender sews the Gloom back together.
+  mesh(torus(r * 0.9, r * 0.05, Math.PI * 2, 28), toon(C.inkMenderTrim), cloak, 0, -r * 0.94, 0).rotation.x = Math.PI / 2;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const st = mesh(box(r * 0.04, r * 0.16, r * 0.04), toon(C.bone), cloak, Math.cos(a) * r * 0.66, -r * 0.2, Math.sin(a) * r * 0.66);
+    st.rotation.y = -a;
+  }
+  mesh(torus(r * 0.6, r * 0.06, Math.PI * 2, 24), toon(C.inkMenderTrim), cloak, 0, r * 0.05, 0).rotation.x = Math.PI / 2;
+  // A deep hood with a calm face: half-closed glowing eyes and a small mouth.
+  const hood = mesh(sph(r * 0.42, 16, 12), toon(C.pupil), body, r * 0.32, r * 0.7, 0);
+  hood.scale.set(0.55, 0.9, 1);
+  hood.rotation.z = -0.45;
+  for (const side of [1, -1]) mesh(sph(r * 0.1, 10, 8), glow(C.mendLight, 1.6), body, r * 0.5, r * 0.78, side * r * 0.15).scale.set(1, 0.55, 1);
+  // Arms in sleeves; the right holds a crook with the lantern hanging from it.
+  for (const side of [1, -1]) {
+    const arm = group(body, side > 0 ? 'armL' : 'armR', r * 0.1, r * 0.35, side * r * 0.62);
+    mesh(cone(r * 0.2, r * 0.7, 10), toon(C.inkMender), arm, r * 0.1, -r * 0.3, 0).rotation.z = 0.3;
+    mesh(sph(r * 0.1, 10, 8), toon(C.horn), arm, r * 0.22, -r * 0.62, 0);
+    if (side < 0) {
+      const crook = mesh(cyl(r * 0.035, r * 0.035, r * 1.7, 8), toon(C.deadwood), arm, r * 0.25, r * 0.05, 0);
+      crook.rotation.z = -0.1;
+      mesh(torus(r * 0.16, r * 0.035, Math.PI, 12), toon(C.deadwood), arm, r * 0.38, r * 0.88, 0);
+      const lamp = group(arm, '', r * 0.54, r * 0.66, 0);
+      mesh(cyl(r * 0.08, r * 0.12, r * 0.06, 10), toon(C.horn), lamp, 0, r * 0.12, 0);
+      mesh(sph(r * 0.13, 12, 10), glow(C.mendLight, 1.5), lamp, 0, 0, 0, 'core');
+      mesh(cyl(r * 0.12, r * 0.08, r * 0.06, 10), toon(C.horn), lamp, 0, -r * 0.12, 0);
+    }
+  }
+  const shield = group(body, 'shield');
+  const ring = mesh(torus(r * 1.5, r * 0.05, Math.PI * 2, 40), gem(C.mendLight, 0.9), shield, 0, -r * 0.9, 0);
+  ring.rotation.x = Math.PI / 2;
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    mesh(new THREE.OctahedronGeometry(r * 0.09, 0), gem(C.mendLight, 1), shield, Math.cos(a) * r * 1.5, -r * 0.7, Math.sin(a) * r * 1.5);
+  }
+  shield.visible = false;
+};
+
+/**
+ * What circles over a tower the Stomper has knocked out: a ring of little stars and a curl of
+ * Gloom ink. The view spins it and wobbles the tower underneath.
+ */
+export function makeDaze(): THREE.Group {
+  const root = new THREE.Group();
+  root.name = 'daze';
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2;
+    const star = mesh(new THREE.OctahedronGeometry(0.06, 0), glow('#fff3a8', 1.4), root, Math.cos(a) * 0.24, Math.sin(a * 2) * 0.03, Math.sin(a) * 0.24);
+    star.scale.set(1, 1.4, 1);
+  }
+  const curl = mesh(torus(0.17, 0.022, Math.PI * 1.5, 20), gem(C.violet, 0.5), root, 0, 0.02, 0);
+  curl.rotation.x = Math.PI / 2;
+  return root;
+}
+// ---------- end bosses ----------
+
+const ENEMY_BUILDERS: Record<EnemyType, EnemyBuilder> = { crawler, flitter, lump, shimmer, splitter, speck, dasher, giant, stomper, thief, mender };
 
 export function makeEnemy(type: EnemyType): THREE.Group {
   const r = ENEMIES[type].r;

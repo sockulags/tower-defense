@@ -63,7 +63,6 @@ export const en = {
 
   fx: {
     wave: (n: number) => `Wave ${n}`,
-    giantWave: (n: number) => `Wave ${n}: a shadow giant approaches`,
     waveCleared: (n: number, bonus: number) => `Wave ${n} cleared  +${bonus} gold`,
     lifeLost: (n: number) => `−${n} ${n === 1 ? 'life' : 'lives'}`,
     level: (n: number) => `Level ${n}`,
@@ -300,7 +299,8 @@ export const en = {
   // ---------- end of front door ----------
 
   // ---------- shadows and shadow traits ----------
-  enemies: { crawler: 'Inkling', flitter: 'Duskmoth', lump: 'Brute', shimmer: 'Veil', splitter: 'Inkblot', speck: 'Droplet', dasher: 'Scurrier', giant: 'Gloom Lord' },
+  enemies: { crawler: 'Inkling', flitter: 'Duskmoth', lump: 'Brute', shimmer: 'Veil', splitter: 'Inkblot', speck: 'Droplet', dasher: 'Scurrier', giant: 'Gloom Lord',
+    stomper: 'Stomper', thief: 'Thief', mender: 'Mender' }, // bosses
   traits: {
     names: { flying: 'Flies', armoured: 'Armoured', mends: 'Mends', splits: 'Splits', sprints: 'Sprints' },
     desc: {
@@ -323,8 +323,95 @@ export const en = {
   },
   // ---------- end shadows and shadow traits ----------
 
+  // ---------- bosses ----------
+  bosses: {
+    /** Called out when a boss wave starts. */
+    wave: (n: number, name: string) => `Wave ${n}: the ${name} approaches`,
+    /** The banner's title when a boss arrives, and the name over its health bar. */
+    title: (name: string) => `The ${name}`,
+    /** One line under the banner: what the boss does and how to answer it. */
+    hint: {
+      giant: 'Huge and slow. Hit it hard before it reaches the village.',
+      stomper: 'Stomps and knocks out the towers near it. Towers out of its reach keep firing.',
+      thief: 'Grabs gold from your purse and runs back to the rift. Bring it down to get the gold back.',
+      mender: 'Heals every shadow around it. Bring it down first, or set it alight.',
+    } as Record<'giant' | 'stomper' | 'thief' | 'mender', string>,
+    stole: (n: number) => `−${n} gold`,
+    returned: (n: number) => `+${n} gold back`,
+    escaped: (n: number) => (n ? `Got away with ${n} gold` : 'Got away'),
+    /** Beside the Thief's health bar while it carries gold. */
+    carrying: (n: number) => `${n} gold`,
+    health: (name: string) => `${name}'s health`,
+    lab: { stomp: 'Stomp', steal: 'Grab gold', mend: 'Mend' },
+  },
+  // ---------- end bosses ----------
+
+  // ---------- boons between waves ----------
+  boons: {
+    title: 'Choose a boon',
+    sub: (wave: number) => `Wave ${wave} is held. One boon shapes the rest of the run.`,
+    take: 'Take',
+    peek: 'Look at the board first',
+    taken: 'Boons this run',
+    kinds: { tower: 'Tower', economy: 'Gold', warden: 'Warden', status: 'Watch' },
+    list: {
+      sparkPower: { name: 'Hot Wires', desc: 'Spark towers deal 30% more damage.' },
+      sparkReach: { name: 'Long Fuse', desc: 'Spark towers reach 25% further and fire 10% faster.' },
+      rimeReach: { name: 'Creeping Frost', desc: 'Rime towers reach 45% further.' },
+      rimeFrostbite: { name: 'Frostbite', desc: 'Rime towers deal 20% more damage, with an 18% chance to freeze a shadow solid.' },
+      emberKindle: { name: 'Kindling', desc: 'Every Ember Pulse sets the shadows it hits burning.' },
+      emberQuick: { name: 'Bellows', desc: 'Ember Pulse towers pulse 20% faster and reach 15% further.' },
+      starWide: { name: 'Wide Craters', desc: 'Starfall impacts are 35% wider.' },
+      starPower: { name: 'Heavy Stars', desc: 'Starfall towers deal 25% more damage.' },
+      thrift: { name: 'Thrifty Hands', desc: 'Tower upgrades cost 20% less this run.' },
+      tithe: { name: 'Village Tithe', desc: 'Every cleared wave pays 20 more gold.' },
+      bounty: { name: 'Bounty', desc: 'Shadows drop 20% more gold.' },
+      savings: { name: 'Piggy Bank', desc: 'Every cleared wave pays 10% of your gold, up to 75.' },
+      windfall: { name: 'Windfall', desc: 'Gold right now: 40, and 12 more for every wave held so far.' },
+      wardenFocus: { name: 'Second Wind', desc: "The Warden's ability recharges twice as fast." },
+      wardenMight: { name: 'Steel Nerves', desc: 'The Warden deals 35% more damage, ability included.' },
+      wardenReach: { name: 'Keen Eyes', desc: 'The Warden reaches 30% further and attacks 15% faster.' },
+      hotBurn: { name: 'Pitch and Tar', desc: 'Every burn deals double damage, and Ember Pulses always leave a small burn.' },
+      deepChill: { name: 'Deep Chill', desc: 'Rime slows harder, and its chill lasts half as long again.' },
+      sunder: { name: 'Rust', desc: 'Armoured shadows have half their armour.' },
+      hearth: { name: 'Warm Hearth', desc: 'The heart gains 6 lives.' },
+      steady: { name: 'Steady Hands', desc: 'Every tower attacks 10% faster.' },
+    },
+    lab: {
+      offer: 'Offer boons now',
+      none: 'No boons taken yet.',
+      picker: 'Boon picks',
+      random: 'Random',
+      greedy: 'Greedy',
+      table: 'Boon pick rates',
+      boon: 'Boon',
+      offered: 'Offered',
+      picked: 'Picked',
+      rate: 'Pick rate',
+      even: 'With three boons per choice, an even pick rate is about 33%.',
+    },
+  },
+  // ---------- end boons between waves ----------
+
   nicknames: ['Old Sven', 'Little My', 'Bertil', 'Miss Frost', 'Captain Glow', 'Aunt Sparkle', 'Uncle Bo', 'Stina',
     'Watchy', 'Doris', 'Lantern Larry', 'Elsa', 'Old Green', 'Majken', 'Knut'],
+
+  // ---------- combos between towers (src/game/combos.ts) ----------
+  combos: {
+    /** Lettered over the shadow when the combo goes off. */
+    words: { shatter: 'Shatter!', steam: 'Steam!', conduct: 'Conduct!' },
+    names: { shatter: 'Shatter', steam: 'Steam', conduct: 'Conduct' },
+    desc: {
+      shatter: 'Starfall deals double damage to a chilled or frozen shadow.',
+      steam: 'Ember Pulse on a chilled shadow bursts into steam that scalds the shadows around it.',
+      conduct: 'Spark deals double damage to a stunned shadow.',
+    },
+    labTitle: 'Combos',
+    labNote: 'Each button chills or stuns the first Inkling and lets the right tower hit it.',
+    /** Balance tab column: average times each combo went off per run. */
+    labPerRun: 'Combos per run',
+  },
+  // ---------- end combos between towers ----------
 
   // --- installable app (src/pwa.ts) ---
   pwa: {

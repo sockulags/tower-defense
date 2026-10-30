@@ -29,6 +29,12 @@ import { startHints, stopHints } from './hints';
 import { openHowTo, openSettings } from './settings';
 // Shadow traits: tower attribute icons and the next-wave preview.
 import { renderWavePreview, towerAttrIcons } from './traits';
+// Boons between waves: the choice overlay and the taken boons on the plaque.
+import { takeBoon } from '../game/boons';
+import { boonChoiceHtml, boonNoteHtml, boonStripHtml } from './boons';
+import type { BoonId } from '../data/boons';
+// Bosses: arrival banner and health bars.
+import { updateBossUi } from './boss';
 import type { Game, MapId, Stats, Tower, TowerType } from '../types';
 
 type Mode = 'menu' | 'play' | 'gallery';
@@ -97,6 +103,7 @@ export function startAttract() {
   g.gold = 1e6;
   g.auto = true;
   g.autoT = 1;
+  g.boons.enabled = false; // boons between waves: the demo never stops for a choice
   for (const [type, tx, ty, level] of DEMO) {
     const t = placeTower(g, type, (tx + 0.5) * T, (ty + 0.5) * T, true);
     if (!t) continue;
@@ -125,6 +132,7 @@ export function frame(dt: number) {
   updateHud(g);
   placeAnchors(g);
   placeQuick(g);
+  updateBoons(g); // boons between waves
 }
 
 const canUseTower = (g: Game, type: TowerType) => !!g.dev?.allTowers || towerUnlocked(type);
@@ -177,6 +185,7 @@ function updateHud(g: Game) {
   setText('bWaveLabel', busy ? s.shadowsLeft(g.queue.length + g.enemies.length) : s.callWave);
   setText('bWaveSub', busy ? s.waveNumber(g.wave) : s.waveNumber(g.wave + 1));
   updateWavePreview(g); // shadow traits: next-wave preview
+  updateBossUi(g); // bosses: arrival banner and health bars
   $('pausedBanner').hidden = !g.paused || !$('menuPop').hidden;
   if ($('bPause').dataset.paused !== String(g.paused)) {
     $('bPause').dataset.paused = String(g.paused);
@@ -600,6 +609,137 @@ $('bQuit').onclick = () => {
   giveUp(g);
   showEnd(false, true);
 };
+
+// ---------- boons between waves: the choice and the taken boons on the plaque ----------
+//
+// After every fifth wave the run offers three boon cards over the board, and the next wave waits
+// until one is taken (tap, click, or the keys 1 to 3). "Look at the board first" folds the cards
+// into a pill at the top so the player can build and upgrade before choosing; the pill or the wave
+// horn opens them again. Taken boons show as small icons in the plaque; hovering or tapping one
+// shows what it does.
+
+/** Presses this soon after the cards appear are ignored, so a tap meant for the board never picks a boon. */
+const BOON_GUARD_MS = 450;
+let boonOfferKey = '';
+let boonStripKey = '';
+let boonShownAt = 0;
+let boonPeek = false;
+let boonNoteFor: HTMLElement | null = null;
+
+function boonEl(id: string, cls: string, parent: HTMLElement, tag = 'div') {
+  let el = document.getElementById(id);
+  if (el) return el;
+  el = document.createElement(tag);
+  el.id = id;
+  el.className = cls;
+  el.hidden = true;
+  parent.appendChild(el);
+  return el;
+}
+
+function chooseBoon(id: BoonId) {
+  const g = game;
+  if (!g || performance.now() - boonShownAt < BOON_GUARD_MS) return;
+  initAudio();
+  if (takeBoon(g, id)) boonOfferKey = '';
+}
+
+function showBoonNote(chip: HTMLElement) {
+  const note = $('boonNote');
+  note.innerHTML = boonNoteHtml(chip.dataset.boon as BoonId);
+  note.hidden = false;
+  boonNoteFor = chip;
+  const r = chip.getBoundingClientRect();
+  note.style.left = `${Math.round(Math.max(8, Math.min(window.innerWidth - note.offsetWidth - 8, r.left + r.width / 2 - note.offsetWidth / 2)))}px`;
+  note.style.top = `${Math.round(r.bottom + 8)}px`;
+}
+
+function hideBoonNote() {
+  boonNoteFor = null;
+  const note = document.getElementById('boonNote');
+  if (note) note.hidden = true;
+}
+
+/** Per frame in a run: shows or folds the choice, and keeps the plaque's boon icons current. */
+function updateBoons(g: Game) {
+  const hud = $('hud'), s = L().boons;
+  const ov = boonEl('boonOv', 'boon-ov', hud);
+  const pill = boonEl('boonPill', 'go boon-pill', hud, 'button');
+  const strip = boonEl('boonStrip', 'boon-strip', hud.querySelector<HTMLElement>('.plaque')!);
+  boonEl('boonNote', 'boon-note panel', hud);
+
+  const offer = g.over ? null : g.boons.offer;
+  const key = offer ? `${offer.join(',')}:${g.cleared}:${s.title}` : '';
+  if (key !== boonOfferKey) {
+    boonOfferKey = key;
+    if (offer) {
+      ov.innerHTML = `<div class="boon-box">${boonChoiceHtml(g)}</div>`;
+      ov.setAttribute('role', 'dialog');
+      ov.setAttribute('aria-label', s.title);
+      boonShownAt = performance.now();
+      boonPeek = false;
+      // The choice replaces whatever the player was doing on the board.
+      g.build = null;
+      pendingPlace = null;
+      hideToast();
+      if (g.selected || g.heroSelected) select(null); else hideQuick();
+    }
+  }
+  const showCards = !!offer && !boonPeek;
+  if (ov.hidden === showCards) ov.hidden = !showCards;
+  const showPill = !!offer && boonPeek;
+  if (pill.hidden === showPill) pill.hidden = !showPill;
+  if (showPill) setText('boonPill', s.title);
+
+  const taken = `${g.boons.taken.join(',')}:${s.title}`;
+  if (taken !== boonStripKey) {
+    boonStripKey = taken;
+    strip.innerHTML = boonStripHtml(g);
+    strip.setAttribute('aria-label', s.taken);
+    strip.hidden = !g.boons.taken.length;
+    hideBoonNote();
+  }
+}
+
+{
+  const hud = $('hud');
+  hud.addEventListener('click', (e) => {
+    const t = e.target as HTMLElement;
+    const card = t.closest<HTMLElement>('#boonOv [data-boon]');
+    if (card) { chooseBoon(card.dataset.boon as BoonId); return; }
+    if (t.closest('#boonPeek')) { boonPeek = true; return; }
+    if (t.closest('#boonPill')) { boonPeek = false; boonShownAt = performance.now(); return; }
+    // Tapping a taken boon shows its note; a second tap puts it away.
+    const chip = t.closest<HTMLElement>('#boonStrip [data-boon]');
+    if (chip) { if (boonNoteFor === chip) hideBoonNote(); else showBoonNote(chip); }
+  });
+  hud.addEventListener('pointerover', (e) => {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>('#boonStrip [data-boon]');
+    if (chip && e.pointerType === 'mouse' && boonNoteFor !== chip) showBoonNote(chip);
+  });
+  hud.addEventListener('pointerout', (e) => {
+    const chip = (e.target as HTMLElement).closest<HTMLElement>('#boonStrip [data-boon]');
+    if (chip && e.pointerType === 'mouse' && !chip.contains(e.relatedTarget as Node | null)) hideBoonNote();
+  });
+  // A press anywhere else puts a tapped note away.
+  document.addEventListener('pointerdown', (e) => {
+    if (boonNoteFor && !(e.target as HTMLElement).closest?.('#boonStrip')) hideBoonNote();
+  }, true);
+  // The wave horn cannot start a wave while a choice is open; it brings the cards back instead.
+  $('bWave').addEventListener('click', () => { if (game?.boons.offer) { boonPeek = false; boonShownAt = performance.now(); } });
+  // Keys 1 to 3 pick a card while the cards are up; this runs before the build keys.
+  document.addEventListener('keydown', (ev) => {
+    const g = game, offer = g?.boons.offer;
+    if (!g || mode !== 'play' || !offer || boonPeek || g.over) return;
+    if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLSelectElement) return;
+    const i = Number(ev.key) - 1;
+    if (!(i >= 0 && i < offer.length)) return;
+    ev.preventDefault();
+    ev.stopImmediatePropagation();
+    chooseBoon(offer[i]);
+  }, true);
+}
+// ---------- end boons between waves ----------
 
 // ---------- In-game controls: quick upgrade, upgrade preview, touch ----------
 //

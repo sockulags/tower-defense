@@ -6,9 +6,11 @@ import { save } from '../save';
 import { sfx } from '../audio';
 import { damage, impact, updateTower } from './combat';
 import { updateHero } from './hero';
+import { boonArmour, boonPending, boonReward, boonWaveCleared, newBoonState } from './boons'; // boons between waves
 import { floatText, updateFx } from './fx';
 import { buildPath, heartOf, posAt } from './path';
-import { hpMultiplier, isGiantWave, makeWave } from './waves';
+import { hpMultiplier, makeWave } from './waves';
+import { roadDirection, updateBosses, waveBoss } from './bosses'; // bosses
 import type { Enemy, EnemyType, Game, Hooks, MapId } from '../types';
 
 export function createGame(mapId: MapId, hooks: Hooks): Game {
@@ -22,17 +24,19 @@ export function createGame(mapId: MapId, hooks: Hooks): Game {
     spawnT: 0, active: false, auto: false, autoT: 0, speed: 1, paused: false, over: false,
     selected: null, build: null, hover: null, t: 0, shake: 0, kills: 0, hooks,
     hero: null, heroSelected: false, loadout: { ...save.hero.equip }, heroTalents: { ...save.hero.talents },
+    boons: newBoonState(),
   };
 }
 
 export function startWave(g: Game) {
-  if (g.active || g.over) return;
+  if (g.active || g.over || boonPending(g)) return; // boons between waves: wait for the choice
   g.wave++;
   g.active = true;
   g.queue = makeWave(g.map, g.wave);
   g.spawnT = 0.3;
   sfx.wave();
-  floatText(g, W / 2, 40, isGiantWave(g.map, g.wave) ? L().fx.giantWave(g.wave) : L().fx.wave(g.wave), '#ffb547', 1.8, 22);
+  const boss = waveBoss(g.map, g.wave); // bosses: the wave call names its boss
+  floatText(g, W / 2, 40, boss ? L().bosses.wave(g.wave, L().enemies[boss]) : L().fx.wave(g.wave), '#ffb547', 1.8, 22);
 }
 
 /** Adds an enemy at the road's start, or `d` pixels along it, scaled for the current wave. */
@@ -41,10 +45,10 @@ export function spawnEnemy(g: Game, type: EnemyType, d = 0): Enemy {
   const hp = def.hp * hpMultiplier(g.map, Math.max(1, g.wave));
   const p = posAt(g.path, d);
   const e: Enemy = {
-    type, def, hp, maxHp: hp, reward: Math.round(def.reward * (1 + 0.02 * g.wave)), d, x: p.x, y: p.y,
+    type, def, hp, maxHp: hp, reward: boonReward(g, def.reward * (1 + 0.02 * g.wave)), d, x: p.x, y: p.y,
     slowUntil: 0, slowAmt: 0, stun: 0, burnUntil: 0, burnDps: 0, burnSrc: null, lastHit: -9,
     seed: Math.random() * 6.28, dead: false,
-    armour: (def.armour ?? 0) * (1 + 0.02 * (Math.max(1, g.wave) - 1)), dashing: false, mending: !!def.regen,
+    armour: boonArmour(g, (def.armour ?? 0) * (1 + 0.02 * (Math.max(1, g.wave) - 1))), dashing: false, mending: !!def.regen,
   };
   g.enemies.push(e);
   return e;
@@ -83,7 +87,7 @@ export function update(g: Game, dt: number) {
     let sp = e.pinned ? 0 : e.def.speed * (e.dashing ? sprint!.mult : 1);
     if (frozen) sp = 0;
     else if (chilled) sp *= 1 - e.slowAmt;
-    e.d += sp * T * dt;
+    e.d += sp * T * dt * roadDirection(e); // bosses: a Thief with its loot runs back
     if (e.d >= g.path.len) {
       e.dead = true;
       if (!g.dev?.god) g.lives -= e.def.leak;
@@ -108,6 +112,7 @@ export function update(g: Game, dt: number) {
   }
   g.shots = g.shots.filter((s) => !s.done);
   // Shadow traits: splitters that were killed (not leaked) break into smaller shadows where they fell.
+  updateBosses(g, dt); // bosses: stomps, grabs and mends; returns a killed Thief's gold
   const splits = g.enemies.filter((e) => e.dead && e.hp <= 0 && e.def.split);
   g.enemies = g.enemies.filter((e) => !e.dead);
   for (const e of splits) {
@@ -125,6 +130,7 @@ export function update(g: Game, dt: number) {
     g.gold += bonus;
     floatText(g, W / 2, 40, L().fx.waveCleared(g.wave, bonus), '#7fc28a', 1.6, 20);
     if (g.wave >= g.map.waves) { finish(g, true); return; }
+    boonWaveCleared(g); // boons between waves: extra gold, and every fifth wave a choice
     g.autoT = 1.5;
   }
   if (!g.active && g.auto && !g.over) {

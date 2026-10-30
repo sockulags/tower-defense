@@ -11,7 +11,11 @@ import { save } from '../save';
 import { castAbility, placeHero, upgradeHero } from './hero';
 import { createGame, startWave, update } from './run';
 import { canBuild, chooseBranch, needsBranch, placeTower, upgrade, upgradeCost } from './towers';
-import type { EnemyType, Game, MapId, Path, Tower, TowerType } from '../types';
+import type { ComboId, EnemyType, Game, MapId, Path, Tower, TowerType } from '../types';
+import { COMBO_ORDER } from './combos';
+// Boons between waves
+import { BOONS, BOON_ORDER, type BoonId } from '../data/boons';
+import { takeBoon } from './boons';
 
 /** mixed: a sensible default; spread: every tower, no upgrades; spark/frost/pulse: only that tower;
  *  star: rush Starfall and build nothing else; warden: a few towers, then all gold into the Warden. */
@@ -54,6 +58,8 @@ export interface BotOptions {
   loadout?: Loadout;
   /** Waves to play on a survival map, where the run would otherwise never end. */
   survivalWaves?: number;
+  /** How the bot picks boons between waves; greedy by default. */
+  boonPick?: BoonPicker;
   /** Simulation step in seconds. */
   dt?: number;
 }
@@ -74,6 +80,10 @@ export interface RunResult {
   /** What stood on the board at the end: type, level and branch of every tower. */
   towers: { type: TowerType; level: number; branch: 0 | 1 | null }[];
   heroLevel: number;
+  /** Boons between waves: every boon offered (three per choice) and every boon taken. */
+  boons: { offered: BoonId[]; taken: BoonId[] };
+  /** Combos between towers: how many times each went off. */
+  combos: Record<ComboId, number>;
 }
 
 // ---------- seeded randomness ----------
@@ -225,12 +235,71 @@ class Bot {
     const w = h.loadout.weapon;
     if (w === 'staff') {
       const near = g.enemies.filter((e) => !e.dead && Math.hypot(e.x - h.x, e.y - h.y) <= 2 * T);
-      if (near.length >= 3 || near.some((e) => e.type === 'giant')) castAbility(g);
+      if (near.length >= 3 || near.some((e) => e.def.boss)) castAbility(g);
     } else if (w === 'bell') {
-      if (g.enemies.length >= 8 || g.enemies.some((e) => e.type === 'giant')) castAbility(g);
-    } else if (g.enemies.some((e) => e.d > g.path.len * 0.6 || e.type === 'giant' || e.type === 'lump')) castAbility(g);
+      if (g.enemies.length >= 8 || g.enemies.some((e) => e.def.boss)) castAbility(g);
+    } else if (g.enemies.some((e) => e.d > g.path.len * 0.6 || e.def.boss || e.type === 'lump')) castAbility(g);
   }
 }
+
+// ---------- boons between waves ----------
+
+/** random: any of the three; greedy: the one worth the most gold to this board right now; or a custom picker for tuning scripts. */
+export type BoonPicker = 'random' | 'greedy' | ((g: Game, offer: BoonId[], rnd: () => number) => BoonId);
+export const BOON_PICKERS = ['greedy', 'random'] as const;
+
+/**
+ * What a boon is worth to this run in gold, roughly: a share more damage from a tower type is worth
+ * that share of the gold sitting in those towers, weighted by how much of the damage they deal;
+ * gold boons are worth the gold they will pay over the waves left; lives are worth more the more
+ * the run has lost.
+ */
+export function boonValue(g: Game, id: BoonId, lastWave: number): number {
+  const d = BOONS[id], left = Math.max(0, lastWave - g.wave);
+  const inv = { spark: 0, frost: 0, pulse: 0, star: 0 } as Record<TowerType, number>;
+  const dealt = { spark: 0, frost: 0, pulse: 0, star: 0 } as Record<TowerType, number>;
+  for (const t of g.towers) { inv[t.type] += t.invested; dealt[t.type] += t.dealt; }
+  const h = g.hero;
+  const towerGold = TOWER_ORDER.reduce((s, t) => s + inv[t], 0);
+  const totalDealt = TOWER_ORDER.reduce((s, t) => s + dealt[t], 0) + (h?.dealt ?? 0) || 1;
+  const board = towerGold + (h ? 150 + h.invested : 0);
+  // A tower type's weight: the board's worth times its share of the damage, but at least its own gold.
+  const weight = (t: TowerType) => Math.max(inv[t], board * dealt[t] / totalDealt);
+  const heroW = h ? Math.max(150 + h.invested, board * h.dealt / totalDealt) : 0;
+  // Gold still to come: about what the run has earned per wave so far, counted at 60 % since gold
+  // in hand now does more than gold later.
+  const earned = g.gold + towerGold + (h?.invested ?? 0);
+  const perWave = earned / Math.max(1, g.wave);
+  const a = d.add ?? {};
+  let v = 0;
+  if (d.tower && d.towerMods) {
+    const w = weight(d.tower), m = d.towerMods;
+    v += w * ((m.dmg ?? 0) + (m.rate ?? 0) + 0.8 * (m.range ?? 0));
+  }
+  v += weight('star') * 0.6 * (a.splash ?? 0);
+  v += weight('frost') * (2 * (a.freeze ?? 0) + 1.2 * (a.slow ?? 0) + 0.3 * (a.chillTime ?? 0)) + board * 0.4 * (a.slow ?? 0);
+  v += weight('pulse') * (a.kindle ?? 0) * 0.8;
+  const burners = g.towers.filter((t) => t.type === 'pulse' && (t.branch === 0 || t.mods?.kindle)).reduce((s, t) => s + t.invested, 0)
+    + (h?.loadout.charm === 'ember' ? heroW : 0);
+  v += burners * 0.4 * (a.burnDmg ?? 0);
+  v += towerGold * (a.allRate ?? 0);
+  v += board * 0.15 * (a.sunder ?? 0);
+  v += heroW * ((a.heroDmg ?? 0) + (a.heroRate ?? 0) + 0.5 * (a.heroRange ?? 0) + 0.3 * (a.heroHaste ?? 0));
+  v += 0.6 * left * perWave * (0.5 * (a.upgradeDiscount ?? 0) + 0.6 * (a.bounty ?? 0));
+  v += 0.6 * left * ((a.waveGold ?? 0) + Math.min(a.interestCap ?? 0, (a.interest ?? 0) * 150));
+  v += (d.gold ?? 0) + (d.goldPerWave ?? 0) * g.cleared;
+  if (d.lives) v += d.lives * 12 * (1 + 4 * (1 - g.lives / g.maxLives));
+  return v;
+}
+
+function pickBoon(g: Game, offer: BoonId[], how: BoonPicker, rnd: () => number, lastWave: number): BoonId {
+  if (typeof how === 'function') return how(g, offer, rnd);
+  if (how === 'random') return offer[Math.floor(rnd() * offer.length)];
+  return offer.reduce((best, id) => (boonValue(g, id, lastWave) > boonValue(g, best, lastWave) ? id : best));
+}
+
+const noBoons = () => Object.fromEntries(BOON_ORDER.map((id) => [id, { offered: 0, picked: 0 }])) as Record<BoonId, { offered: number; picked: number }>;
+// ---------- end boons between waves ----------
 
 const zero = (): Record<SourceKey, number> => ({ spark: 0, frost: 0, pulse: 0, star: 0, hero: 0 });
 
@@ -252,6 +321,8 @@ export function playRun(o: BotOptions): RunResult {
     g.loadout = { ...(o.loadout ?? DEFAULT_LOADOUT) };
     g.heroTalents = { might: 0, reach: 0, focus: 0, veteran: 0 };
     const bot = new Bot(g, PLANS[o.strategy], rnd);
+    g.boons.anyTower = true; // boons between waves: the same pool whatever the player's save
+    const offered: BoonId[] = [];
     const dt = o.dt ?? 1 / 30;
     const lastWave = Number.isFinite(g.map.waves) ? g.map.waves : (o.survivalWaves ?? 40);
     const worthNow = () => g.gold + g.towers.reduce((s, t) => s + t.invested, 0) + (g.hero?.invested ?? 0);
@@ -262,6 +333,8 @@ export function playRun(o: BotOptions): RunResult {
       if (!g.active) {
         if (g.cleared > worth.length) worth.push(worthNow());
         if (g.cleared >= lastWave) { won = true; break; }
+        // Boons between waves: choose before spending, since the boon may change what is worth buying.
+        if (g.boons.offer) { offered.push(...g.boons.offer); takeBoon(g, pickBoon(g, g.boons.offer, o.boonPick ?? 'greedy', rnd, lastWave)); }
         bot.think();
         startWave(g);
       }
@@ -280,6 +353,8 @@ export function playRun(o: BotOptions): RunResult {
     return {
       map: o.map, strategy: o.strategy, win: won, cleared: g.cleared, livesLost: g.maxLives - g.lives,
       leaks, worth, damage, kills, towers: g.towers.map((t) => ({ type: t.type, level: t.level, branch: t.branch })), heroLevel: g.hero?.level ?? 0,
+      combos: Object.fromEntries(COMBO_ORDER.map((id) => [id, g.combo?.counts[id] ?? 0])) as Record<ComboId, number>,
+      boons: { offered, taken: [...g.boons.taken] },
     };
   } finally {
     Math.random = realRandom;
@@ -306,6 +381,10 @@ export interface Report {
   damage: Record<SourceKey, number>;
   kills: Record<SourceKey, number>;
   survival: boolean;
+  /** Boons between waves: how often each boon was offered and taken over all runs. */
+  boons: Record<BoonId, { offered: number; picked: number }>;
+  /** Combos between towers: average times each went off per run. */
+  combos: Record<ComboId, number>;
 }
 
 export function summarize(results: RunResult[]): Report {
@@ -329,6 +408,8 @@ export function summarize(results: RunResult[]): Report {
     winRate: avg((r) => (r.win ? 1 : 0)), cleared: avg((r) => r.cleared), livesLost: avg((r) => r.livesLost),
     leaks: Object.fromEntries(Object.keys(r0.leaks).map((k) => [k, avg((r) => r.leaks[k as EnemyType])])) as Record<EnemyType, number>,
     worth, damage: share((r) => r.damage), kills: share((r) => r.kills), survival: !Number.isFinite(MAPS[r0.map].waves),
+    combos: Object.fromEntries(COMBO_ORDER.map((id) => [id, avg((r) => r.combos[id])])) as Record<ComboId, number>,
+    boons: tallyBoons(results),
   };
 }
 
@@ -339,6 +420,7 @@ export interface BatchOptions {
   seed?: number;
   loadout?: Loadout;
   survivalWaves?: number;
+  boonPick?: BoonPicker;
 }
 
 /** Every run in a batch, in order, so a caller can spread them over frames. */
@@ -346,7 +428,7 @@ export function batchJobs(o: BatchOptions): BotOptions[][] {
   const out: BotOptions[][] = [];
   for (const map of o.maps) for (const strategy of o.strategies) {
     const jobs: BotOptions[] = [];
-    for (let i = 0; i < o.runs; i++) jobs.push({ map, strategy, seed: (o.seed ?? 1) + i, loadout: o.loadout, survivalWaves: o.survivalWaves });
+    for (let i = 0; i < o.runs; i++) jobs.push({ map, strategy, seed: (o.seed ?? 1) + i, loadout: o.loadout, survivalWaves: o.survivalWaves, boonPick: o.boonPick });
     out.push(jobs);
   }
   return out;
@@ -368,12 +450,13 @@ const pct = (v: number) => `${Math.round(v * 100)}%`;
 
 /** A compact plain-text table, one block per map. Column labels use the internal ids. */
 export function formatTable(reports: Report[]): string {
-  const head = ['strategy', 'win', 'waves', 'lives', ...SOURCE_KEYS.map((k) => `dmg:${k}`), ...SOURCE_KEYS.map((k) => `kill:${k}`), 'gold earned'];
+  const head = ['strategy', 'win', 'waves', 'lives', ...SOURCE_KEYS.map((k) => `dmg:${k}`), ...SOURCE_KEYS.map((k) => `kill:${k}`), ...COMBO_ORDER.map((id) => `combo:${id}`), 'gold earned'];
   const lines: string[] = [];
   for (const map of [...new Set(reports.map((r) => r.map))]) {
     const rows = reports.filter((r) => r.map === map).map((r) => [
       r.strategy, r.survival ? '-' : pct(r.winRate), r.cleared.toFixed(1), r.livesLost.toFixed(1),
       ...SOURCE_KEYS.map((k) => pct(r.damage[k])), ...SOURCE_KEYS.map((k) => pct(r.kills[k])),
+      ...COMBO_ORDER.map((id) => String(Math.round(r.combos[id]))),
       `${sparkline(r.worth)} ${Math.round(r.worth[r.worth.length - 1] ?? 0)}`,
     ]);
     const widths = head.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
@@ -383,3 +466,32 @@ export function formatTable(reports: Report[]): string {
   }
   return lines.join('\n');
 }
+
+// ---------- boons between waves: pick rates ----------
+
+function tallyBoons(results: RunResult[]) {
+  const out = noBoons();
+  for (const r of results) {
+    for (const id of r.boons.offered) out[id].offered++;
+    for (const id of r.boons.taken) out[id].picked++;
+  }
+  return out;
+}
+
+/** Pick rates over a set of reports, most picked first: how often each boon was taken when offered. */
+export function boonRates(reports: Report[]): { id: BoonId; offered: number; picked: number; rate: number }[] {
+  const sum = noBoons();
+  for (const r of reports) for (const id of BOON_ORDER) { sum[id].offered += r.boons[id].offered; sum[id].picked += r.boons[id].picked; }
+  return BOON_ORDER.map((id) => ({ id, ...sum[id], rate: sum[id].offered ? sum[id].picked / sum[id].offered : 0 }))
+    .sort((a, b) => b.rate - a.rate);
+}
+
+/** A plain-text table of boon pick rates. With three boons per choice, an even pick rate is about 33 %. */
+export function formatBoonTable(reports: Report[]): string {
+  const rows = boonRates(reports).map((b) => [b.id, String(b.offered), String(b.picked), pct(b.rate), '█'.repeat(Math.round(b.rate * 20))]);
+  const head = ['boon', 'offered', 'picked', 'rate', ''];
+  const widths = head.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i].length)));
+  const fmt = (cells: string[]) => cells.map((c, i) => (i === 0 || i === 4 ? c.padEnd(widths[i]) : c.padStart(widths[i]))).join('  ');
+  return ['boon pick rates (even is about 33%)', fmt(head), ...rows.map(fmt), ''].join('\n');
+}
+// ---------- end boons between waves: pick rates ----------

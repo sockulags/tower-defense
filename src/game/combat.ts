@@ -5,6 +5,7 @@ import { burst, floatText } from './fx';
 import { JAR_GOLD } from '../data/hero';
 import { heroReach } from './hero';
 import { canHit, stats, towerAttrs, traitBonus } from './towers';
+import { findCombo, noteTowerStatus, recordCombo } from './combos';
 import type { Enemy, Game, Shot, Source, Stats, Tower, TowerAttrs } from '../types';
 
 /** Smallest share of a hit that gets through armour. */
@@ -16,6 +17,11 @@ const ARMOUR_FLOOR = 0.25;
  */
 export function damage(g: Game, e: Enemy, amount: number, src: Source | null, dot = false) {
   if (e.dead) return;
+  // Combos between towers: a direct tower hit on a shadow another tower has left chilled, frozen or stunned.
+  const combo = !dot && !comboDepth ? findCombo(g, e, src) : null;
+  if (combo) amount *= combo.mult;
+  const comboHit = amount;
+  // end combos
   // Shadow traits: trait bonuses and armour.
   if (!dot) {
     if (src && !('isHero' in src)) amount *= traitBonus(towerAttrs(src.type, src.branch), e);
@@ -36,14 +42,36 @@ export function damage(g: Game, e: Enemy, amount: number, src: Source | null, do
       g.gold += JAR_GOLD;
       floatText(g, e.x, e.y - 16, `+${JAR_GOLD}`, '#d8ff9a', 0.9, 13);
     }
-    burst(g, e.x, e.y, e.def.color, e.type === 'giant' ? 40 : 10);
-    sfx.kill(e.type === 'giant');
-    if (e.type === 'giant') {
+    burst(g, e.x, e.y, e.def.color, e.def.boss ? 40 : 10);
+    sfx.kill(!!e.def.boss);
+    if (e.def.boss) {
       g.shake = 0.5;
       floatText(g, e.x, e.y - 20, `+${e.reward}`, '#ffb547', 1.4, 18);
     }
   }
+  // Combos between towers: count it, letter it, and burst onto the shadows around it.
+  if (combo) {
+    recordCombo(g, combo, e);
+    if (combo.burst) comboBurst(g, e, combo.burst, comboHit, combo.color, src);
+  }
 }
+
+// ---------- combos between towers ----------
+
+/** Above zero while a combo's burst deals its damage, so a burst never sets off further combos. */
+let comboDepth = 0;
+
+function comboBurst(g: Game, e: Enemy, b: { r: number; share: number }, hit: number, color: string, src: Source | null) {
+  const R = b.r * T;
+  comboDepth++;
+  try {
+    for (const n of inRange(g, e.x, e.y, R)) if (n !== e) damage(g, n, hit * b.share, src);
+  } finally {
+    comboDepth--;
+  }
+  g.fx.push({ k: 'ring', x: e.x, y: e.y, r0: 4, r1: R, life: 0.4, max: 0.4, color });
+}
+// ---------- end combos between towers ----------
 
 /** Live shadows within `r` pixels; with `attrs`, only those the source can hit (flyers need `air`). */
 export const inRange = (g: Game, x: number, y: number, r: number, attrs?: TowerAttrs) =>
@@ -51,11 +79,11 @@ export const inRange = (g: Game, x: number, y: number, r: number, attrs?: TowerA
 
 export function applySlow(g: Game, e: Enemy, s: Stats) {
   const stillSlowed = e.slowUntil > g.t;
-  // Giants only take half the slow and can't be frozen.
-  const amount = e.type === 'giant' ? s.slow * 0.5 : s.slow;
+  // Bosses (the giant included) only take half the slow and can't be frozen.
+  const amount = e.def.boss ? s.slow * 0.5 : s.slow;
   e.slowAmt = Math.max(stillSlowed ? e.slowAmt : 0, amount);
   e.slowUntil = g.t + s.slowDur;
-  if (s.freeze && e.type !== 'giant' && Math.random() < s.freeze) e.stun = g.t + 1.2;
+  if (s.freeze && !e.def.boss && Math.random() < s.freeze) e.stun = g.t + 1.2;
 }
 
 export function updateTower(g: Game, t: Tower, dt: number) {
@@ -72,8 +100,10 @@ export function updateTower(g: Game, t: Tower, dt: number) {
     for (const e of targets) {
       damage(g, e, s.dmg, t);
       if (s.burn) { e.burnUntil = g.t + 3; e.burnDps = Math.max(e.burnDps, s.burn); e.burnSrc = t; }
+      const was = { stun: e.stun, slowUntil: e.slowUntil }; // combos
       if (s.stun && Math.random() < s.stun) e.stun = g.t + 0.6;
       if (s.slow) applySlow(g, e, s);
+      noteTowerStatus(e, was); // combos: towers' chills and stuns can set combos off
     }
     g.fx.push({ k: 'ring', x: t.x, y: t.y, r0: T * 0.3, r1: r, life: 0.45, max: 0.45, color: d.color });
     sfx.fire(t.type);
@@ -114,6 +144,8 @@ export function impact(g: Game, sh: Shot) {
   const e = sh.target;
   if (e.dead) return;
   damage(g, e, sh.dmg, sh.src);
+  const was = { stun: e.stun, slowUntil: e.slowUntil }; // combos
   if (sh.s.slow) applySlow(g, e, sh.s);
+  if (!('isHero' in sh.src)) noteTowerStatus(e, was); // combos: towers' chills and stuns can set combos off
   if (sh.s.burn) { e.burnUntil = g.t + 3; e.burnDps = Math.max(e.burnDps, sh.s.burn); e.burnSrc = sh.src; }
 }

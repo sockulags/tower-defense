@@ -1,7 +1,10 @@
 import type { Loadout, TalentId } from './data/hero';
+import type { BoonId, BoonMods } from './data/boons'; // boons between waves
 
 export type TowerType = 'spark' | 'frost' | 'pulse' | 'star';
-export type EnemyType = 'crawler' | 'flitter' | 'lump' | 'shimmer' | 'splitter' | 'speck' | 'dasher' | 'giant';
+export type EnemyType = 'crawler' | 'flitter' | 'lump' | 'shimmer' | 'splitter' | 'speck' | 'dasher' | 'giant'
+  // bosses
+  | 'stomper' | 'thief' | 'mender';
 export type MapId = 'mill' | 'marsh' | 'ring';
 
 // ---------- shadow traits and tower attributes ----------
@@ -22,6 +25,36 @@ export interface TowerAttrs {
 export type WaveGroup = [type: EnemyType, count: number, gap: number];
 export type WaveSpec = WaveGroup[];
 // ---------- end shadow traits and tower attributes ----------
+
+// ---------- combos between towers ----------
+/** A combo: one tower's hit on a shadow that another tower has left in a state. Defined in game/combos.ts. */
+export type ComboId = 'shatter' | 'steam' | 'conduct';
+
+/** A combo that just went off, for the view to letter over the shadow. */
+export interface ComboWord { id: ComboId; enemy: Enemy; x: number; y: number; at: number }
+
+export interface ComboLog {
+  /** How many times each combo has gone off this run. */
+  counts: Record<ComboId, number>;
+  /** Recent words to show; old ones are pruned when new ones arrive. */
+  words: ComboWord[];
+}
+// ---------- end combos between towers ----------
+
+// ---------- boons between waves ----------
+export interface BoonState {
+  /** Boons taken this run, in order. */
+  taken: BoonId[];
+  /** The choice waiting for the player; the next wave cannot start while it is open. */
+  offer: BoonId[] | null;
+  /** The taken boons added up; towers and the Warden hold the same object. */
+  mods: BoonMods;
+  /** False for the menu demo, which never stops for a choice. */
+  enabled: boolean;
+  /** Offer tower boons for every tower type, not only unlocked ones (bots). */
+  anyTower: boolean;
+}
+// ---------- end boons between waves ----------
 
 export interface MapDef {
   id: MapId;
@@ -72,7 +105,38 @@ export interface EnemyDef {
   split?: { type: EnemyType; count: number };
   /** sprints: speed multiplier during a burst, burst length and time between bursts in seconds. */
   sprint?: { mult: number; dur: number; every: number };
+  /** Bosses: present on every boss, the Gloom Lord included; see BossDef. */
+  boss?: BossDef;
 }
+
+// ---------- bosses ----------
+/**
+ * What a boss does, as data on its EnemyDef (src/data/enemies.ts). A boss with none of these is a
+ * plain big shadow, like the Gloom Lord. The rules live in src/game/bosses.ts.
+ */
+export interface BossDef {
+  /** Every `every` seconds, knocks out the towers within `radius` tiles for `knock` seconds. */
+  stomp?: { every: number; radius: number; knock: number };
+  /**
+   * At share `at` of the road, takes `share` of the purse (at most `max` plus `perWave` per wave)
+   * and runs back to the rift `flee` times as fast. Killing it returns the gold.
+   */
+  steal?: { at: number; share: number; max: number; perWave: number; flee: number };
+  /** Every `every` seconds, while it mends, heals the shadows within `radius` tiles by `heal` of their max health. */
+  mend?: { every: number; radius: number; heal: number };
+}
+
+export interface BossState {
+  /** Simulation time of the last stomp, grab or mend, for the view to animate; -9 before the first. */
+  at: number;
+  /** Seconds until the next stomp or mend. */
+  next: number;
+  /** Gold the Thief carries. */
+  loot: number;
+  /** The Thief has grabbed its gold and runs back to the rift. */
+  fleeing: boolean;
+}
+// ---------- end bosses ----------
 
 export interface Pt { x: number; y: number }
 
@@ -101,6 +165,10 @@ export interface Tower {
   flash: number;
   /** Damage bonus from the Warden's Badge charm, refreshed every tick. */
   boost: number;
+  /** Boons between waves: the run's boons, shared with the game (set when placed). */
+  mods?: BoonMods;
+  /** Bosses: seconds left knocked out by a Stomper's stomp; it cannot fire meanwhile. */
+  knocked?: number;
 }
 
 /** Anything that deals damage and keeps a tally: a tower or the Warden. */
@@ -122,6 +190,8 @@ export interface Hero {
   dealt: number;
   invested: number;
   flash: number;
+  /** Boons between waves: the run's boons, shared with the game (set when placed). */
+  mods?: BoonMods;
 }
 
 export interface Enemy {
@@ -143,6 +213,8 @@ export interface Enemy {
   armour: number;
   dashing: boolean;
   mending: boolean;
+  /** Bosses: what this boss is doing; created by game/bosses.ts on its first tick. */
+  boss?: BossState;
 }
 
 export interface Stats {
@@ -226,4 +298,8 @@ export interface Game {
   shake: number;
   kills: number;
   hooks: Hooks;
+  /** Combos between towers: counts and words to show. Created by game/combos.ts on the first combo. */
+  combo?: ComboLog;
+  /** Boons between waves: what the run has taken and the choice on offer (game/boons.ts). */
+  boons: BoonState;
 }

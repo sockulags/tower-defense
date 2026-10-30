@@ -9,11 +9,14 @@ import { COLS, ROWS, T } from '../config';
 import { TOWERS } from '../data/towers';
 import { canBuild, needsBranch, stats } from '../game/towers';
 import { buildPath, heartOf } from '../game/path';
-import { C, gem, glow, makeBoard, makeEnemy, makeHeart, makeHero, makePortal, makeTower, tileToWorld } from './models';
+import { C, gem, glow, makeBoard, makeDaze, makeEnemy, makeHeart, makeHero, makePortal, makeTower, tileToWorld } from './models';
+import { BOSS_COLORS } from '../game/bosses'; // bosses
 import { BADGE_RADIUS, WEAPONS, type Loadout } from '../data/hero';
 import { heroStats } from '../game/hero';
 import { ENEMIES } from '../data/enemies';
-import type { Enemy, EnemyType, Fx, Game, MapDef, Path, Shot, Tower, TowerType } from '../types';
+import { COMBOS, WORD_LIFE } from '../game/combos';
+import { L } from '../i18n';
+import type { ComboWord, Enemy, EnemyType, Fx, Game, MapDef, Path, Shot, Tower, TowerType } from '../types';
 
 const FONT = '"Alegreya Sans", sans-serif';
 /** Camera angle from straight down: steep enough to read the board, shallow enough to see the sides of models. */
@@ -626,7 +629,9 @@ export class GameView {
   }
 
   private animateTower(t: Tower, v: TowerView, now: number) {
-    const fired = t.cd > v.lastCd + 1e-4;
+    // Bosses: a stomp raises the cooldown too, but that is a knock-out, not a shot.
+    const knock = this.knockStarted(t);
+    const fired = t.cd > v.lastCd + 1e-4 && !knock;
     if (fired) v.fireAt = now;
     v.lastCd = t.cd;
     const fire = kick(now, v.fireAt, 0.3);
@@ -670,6 +675,7 @@ export class GameView {
     // Area towers blast flame (or frost, or lightning) out of every spout when they pulse.
     for (const j of v.jets) j.scale.set(0.3 + 2.4 * fire + 0.06 * Math.sin(now * 12 + j.id), 0.7 + 0.6 * fire, 0.7 + 0.6 * fire);
     if (fired) this.weaponFlash(t, v);
+    this.animateKnocked(t, v, now); // bosses
     if (v.badge) {
       v.badge.visible = needsBranch(t);
       v.badge.position.y = 1.55 + Math.sin(now * 4) * 0.07;
@@ -755,7 +761,7 @@ export class GameView {
         this.scene.add(obj);
         const skin = obj.getObjectByName('skin') as THREE.Mesh | undefined;
         const parts: EnemyView['parts'] = {};
-        for (const n of ['footL', 'footR', 'wingL', 'wingR', 'armL', 'armR', 'cloak', 'shield', 'buds', 'slow', 'burn', 'stun']) parts[n] = obj.getObjectByName(n);
+        for (const n of ['footL', 'footR', 'wingL', 'wingR', 'armL', 'armR', 'cloak', 'shield', 'buds', 'slow', 'burn', 'stun', 'sack', 'core', 'jaw']) parts[n] = obj.getObjectByName(n);
         v = {
           obj, body: obj.getObjectByName('body')!, lx: x, lz: z, yaw: 0, lastHit: e.lastHit, hitAt: -9, bornAt: now, mats, lastHp: e.hp,
           color: skin ? (skin.material as THREE.MeshToonMaterial).color.clone() : new THREE.Color(e.def.color), parts,
@@ -770,8 +776,8 @@ export class GameView {
       const kill = e.hp <= 0;
       this.dying.push({ obj: v.obj, at: now, kill, scale: v.obj.scale.x, mats: v.mats });
       if (kill) {
-        this.puff(v.obj.position.x, v.obj.position.y, v.obj.position.z, '#' + v.color.getHexString(), e.type === 'giant' ? 40 : 14, 2.2, 3);
-        if (e.type === 'giant') this.giantFalls(v.obj.position, now);
+        this.puff(v.obj.position.x, v.obj.position.y, v.obj.position.z, '#' + v.color.getHexString(), e.def.boss ? 40 : 14, 2.2, 3);
+        if (e.def.boss) this.giantFalls(v.obj.position, now);
         this.motes.push({ x: v.obj.position.x, y: v.obj.position.y + 0.2, z: v.obj.position.z, vx: 0, vy: 0.9, vz: 0, life: 0.9, max: 0.9, color: new THREE.Color(C.eye).multiplyScalar(1.6), gravity: 0 });
       }
     }
@@ -786,7 +792,8 @@ export class GameView {
       v.yaw += Math.atan2(Math.sin(target - v.yaw), Math.cos(target - v.yaw)) * 0.25;
     }
     v.lx = x; v.lz = z;
-    const pace = { crawler: 2.4, flitter: 1, lump: 1.3, shimmer: 1, splitter: 1.6, speck: 3, dasher: e.dashing ? 4.5 : 1.6, giant: 0.9 }[e.type];
+    const pace = { crawler: 2.4, flitter: 1, lump: 1.3, shimmer: 1, splitter: 1.6, speck: 3, dasher: e.dashing ? 4.5 : 1.6, giant: 0.9,
+      stomper: 0.8, thief: e.dashing || e.boss?.fleeing ? 3.2 : 1.8, mender: 0.7 }[e.type]; // bosses
     const t = g.t * pace * 4 + e.seed;
     const frozen = e.stun > g.t;
     const step = frozen ? 0 : 1;
@@ -838,11 +845,14 @@ export class GameView {
       if (p.footL) p.footL.rotation.z = Math.sin(t) * (0.6 + 0.5 * run) * step;
       if (p.footR) p.footR.rotation.z = -Math.sin(t) * (0.6 + 0.5 * run) * step;
       for (const ear of [p.armL, p.armR]) if (ear) ear.rotation.z = -0.9 * run + Math.sin(t * 0.5) * 0.1;
+    } else if (e.def.boss) {
+      lift = this.animateBoss(g, e, v, t, step, now); // bosses
     }
     const squash = Math.sin(t * 2) * 0.05 * step;
     v.body.scale.set(1 + squash, 1 - squash, 1 + squash);
     // Shadow traits: a sprinting Scurrier stretches out along its run.
     if (e.type === 'dasher' && e.dashing) v.body.scale.set(1.18, 0.88, 0.95);
+    if (e.def.boss && e.type !== 'giant') this.bossBody(e, v, now); // bosses: a stomp squashes, a grab stretches
     v.body.rotation.y = v.yaw;
 
     const born = easeOutBack(clamp01((now - v.bornAt) / 0.35));
@@ -867,6 +877,125 @@ export class GameView {
     if (p.burn) { p.burn.visible = e.burnUntil > g.t; p.burn.scale.y = 1 + Math.sin(now * 20) * 0.15; }
     if (p.stun) { p.stun.visible = frozen; p.stun.rotation.y = now * 6; }
   }
+
+  // ---------- bosses ----------
+
+  /** Each boss's last stomp, grab or mend: the simulation time it happened, and when the view first saw it. */
+  private bossEvents = new WeakMap<Enemy, { seen: number; at: number }>();
+  /** Each tower's knock-out time last frame, to tell a fresh stomp from a shot. */
+  private knockSeen = new WeakMap<Tower, number>();
+
+  /** Real time of a boss's last ability. A new one is caught here, and gets its puff of dust, gold or light. */
+  private bossEventAt(e: Enemy, v: EnemyView, now: number) {
+    const simAt = e.boss?.at ?? -9;
+    let ev = this.bossEvents.get(e);
+    if (!ev) { ev = { seen: simAt, at: -9 }; this.bossEvents.set(e, ev); }
+    if (simAt !== ev.seen) {
+      ev.seen = simAt;
+      ev.at = now;
+      const o = v.obj.position, b = e.def.boss!;
+      if (b.stomp) this.puff(o.x, 0.05, o.z, '#cfc3ad', 26, 2.4, 2.5);
+      else if (b.steal) this.puff(o.x, o.y + 0.3, o.z, BOSS_COLORS.steal, 22, 1.6, 2);
+      else if (b.mend) this.puff(o.x, o.y + 0.3, o.z, BOSS_COLORS.mend, 14, 1, -0.6);
+    }
+    return ev.at;
+  }
+
+  /**
+   * Bosses move like what they are. The Stomper plods on pillar legs, rears up on one leg before a
+   * stomp and slams it down; the Thief scuttles hunched over and, once it has the gold, clutches
+   * its sack and runs; the Mender floats, and raises its arms and lantern when it mends.
+   * Returns how high the body lifts.
+   */
+  private animateBoss(g: Game, e: Enemy, v: EnemyView, t: number, step: number, now: number) {
+    const p = v.parts, r = e.def.r, b = e.boss, def = e.def.boss!;
+    const at = this.bossEventAt(e, v, now);
+    if (def.stomp) {
+      const windup = step * clamp01(1 - (b?.next ?? 9) / 0.6), slam = kick(now, at, 0.45);
+      const walk = step * (1 - windup);
+      if (p.footL) p.footL.position.y = -r * 0.62 + r * (Math.max(0, Math.sin(t)) * 0.16 * walk + 0.42 * windup);
+      if (p.footR) p.footR.position.y = -r * 0.62 + r * Math.max(0, -Math.sin(t)) * 0.16 * walk;
+      v.body.rotation.x = Math.sin(t) * 0.05 * walk;
+      v.body.rotation.z = 0.22 * windup - 0.1 * slam;
+      if (p.armL) p.armL.rotation.z = Math.sin(t) * 0.4 * walk + 1.4 * windup;
+      if (p.armR) p.armR.rotation.z = -Math.sin(t) * 0.4 * walk + 1.4 * windup;
+      if (p.jaw) p.jaw.rotation.z = -0.35 * slam - 0.15 * windup;
+      return Math.abs(Math.sin(t)) * 0.03 * walk + 0.1 * windup;
+    }
+    if (def.steal) {
+      const loot = b?.loot ?? 0, carrying = !!b?.fleeing;
+      const grab = kick(now, at, 0.5), run = e.dashing || carrying ? 1 : 0;
+      v.body.rotation.z = (-0.15 - 0.15 * run) * (step || 0.5);
+      v.body.rotation.x = Math.sin(t) * 0.07 * step;
+      if (p.footL) p.footL.position.x = r * 0.12 + Math.sin(t) * r * (0.3 + 0.15 * run) * step;
+      if (p.footR) p.footR.position.x = r * 0.12 - Math.sin(t) * r * (0.3 + 0.15 * run) * step;
+      // Grabbing hands reach forward; afterwards they hug the sack on its back.
+      const arms = carrying ? -0.9 + 2.2 * grab : Math.sin(t) * 0.5 * step;
+      if (p.armL) p.armL.rotation.z = arms;
+      if (p.armR) p.armR.rotation.z = carrying ? arms : -Math.sin(t) * 0.5 * step;
+      if (p.sack) {
+        p.sack.visible = carrying;
+        const fill = (0.7 + 0.45 * Math.min(1, loot / 150)) * easeOutBack(clamp01((now - at) / 0.4));
+        p.sack.scale.setScalar(Math.max(0.01, fill));
+        p.sack.rotation.x = Math.sin(t) * 0.15 * step;
+      }
+      if (p.cloak) p.cloak.rotation.z = -0.1 * run + Math.sin(t) * 0.05 * step;
+      return Math.abs(Math.sin(t)) * (0.04 + 0.03 * run) * step;
+    }
+    // The Mender.
+    const glowUp = kick(now, at, 0.9);
+    if (p.cloak) p.cloak.rotation.z = Math.sin(t * 1.1) * 0.06;
+    if (p.armL) p.armL.rotation.x = -0.15 - 1.1 * glowUp;
+    if (p.armR) p.armR.rotation.x = 0.15 + 0.7 * glowUp;
+    if (p.core) p.core.scale.setScalar(1 + 0.7 * glowUp + 0.08 * Math.sin(now * 5 + e.seed));
+    if (p.shield) {
+      // The ring of mending light shows while it can mend, and blooms out with each mend.
+      p.shield.visible = e.mending;
+      p.shield.rotation.y = g.t * 0.6;
+      p.shield.scale.setScalar(0.9 + 0.35 * glowUp + Math.sin(g.t * 2.5 + e.seed) * 0.03);
+    }
+    return 0.16 + Math.sin(t * 0.6) * 0.05 + 0.06 * glowUp;
+  }
+
+  /** Bosses: a stomp squashes the Stomper, a grab stretches the Thief, a mend swells the Mender. */
+  private bossBody(e: Enemy, v: EnemyView, now: number) {
+    const at = this.bossEvents.get(e)?.at ?? -9, def = e.def.boss!;
+    if (def.stomp) { const k = kick(now, at, 0.35); v.body.scale.set(1 + 0.16 * k, 1 - 0.2 * k, 1 + 0.16 * k); }
+    else if (def.steal) { const k = kick(now, at, 0.3); v.body.scale.set(1 + 0.12 * k, 1 + 0.1 * k, 1 - 0.08 * k); }
+    else if (def.mend) { const k = kick(now, at, 0.6); v.body.scale.setScalar(1 + 0.08 * k); }
+  }
+
+  /** Whether a tower was knocked out since last frame. */
+  private knockStarted(t: Tower) {
+    const k = t.knocked ?? 0, last = this.knockSeen.get(t) ?? 0;
+    this.knockSeen.set(t, k);
+    return k > last + 1e-4;
+  }
+
+  /** A knocked-out tower wobbles with stars circling over it until it comes round. */
+  private animateKnocked(t: Tower, v: TowerView, now: number) {
+    const k = t.knocked ?? 0;
+    let daze = v.obj.userData.daze as THREE.Group | undefined;
+    if (k <= 0) {
+      if (daze?.visible) { daze.visible = false; v.obj.rotation.set(0, 0, 0); }
+      return;
+    }
+    if (!daze) {
+      daze = makeDaze();
+      addOutlines(daze);
+      v.obj.add(daze);
+      v.obj.userData.daze = daze;
+    }
+    daze.visible = true;
+    daze.rotation.y = now * 4;
+    daze.position.y = 1.5 + Math.sin(now * 3) * 0.04;
+    daze.scale.setScalar(easeOutBack(clamp01((now - (v.obj.userData.dazeAt ??= now)) / 0.3)));
+    // The wobble settles in the last moments, as the tower comes round.
+    const sway = Math.min(1, k / 0.5);
+    v.obj.rotation.set(Math.cos(now * 6) * 0.05 * sway, 0, Math.sin(now * 6) * 0.07 * sway);
+    if (k < 0.05) v.obj.userData.dazeAt = undefined;
+  }
+  // ---------- end bosses ----------
 
   private animateDying(now: number) {
     this.dying = this.dying.filter((d) => {
@@ -1179,5 +1308,56 @@ export class GameView {
       ctx.fillText(f.text, sx, sy);
     }
     ctx.globalAlpha = 1;
+    this.drawComboWords(g, scale);
   }
+
+  // ---------- combos between towers ----------
+
+  /** When the view first drew each combo word, in seconds of real time. */
+  private comboSeen = new WeakMap<ComboWord, number>();
+
+  /** Letters each combo's word over the shadow it hit: a quick pop, a short rise, then a fade. */
+  private drawComboWords(g: Game, scale: number) {
+    const words = g.combo?.words;
+    if (!words?.length) return;
+    const ctx = this.overlay, names = L().combos.words;
+    ctx.save();
+    // The overlay's own transform (device pixel ratio); each word is drawn around its own origin on top of it.
+    const m = ctx.getTransform();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    const now = performance.now() / 1000;
+    for (const w of words) {
+      // Aged in real time from the frame the view first sees it, so a word reads the same at any
+      // game speed and still plays out while the lab gallery is paused.
+      let seen = this.comboSeen.get(w);
+      if (seen === undefined) {
+        if (g.t - w.at >= WORD_LIFE) continue;
+        seen = now;
+        this.comboSeen.set(w, seen);
+      }
+      const age = now - seen;
+      if (age >= WORD_LIFE) continue;
+      // Follow the shadow while it lives; stay where it fell once it is gone.
+      const v = !w.enemy.dead ? this.enemies.get(w.enemy) : undefined;
+      if (!w.enemy.dead) { w.x = w.enemy.x; w.y = w.enemy.y; }
+      const r = w.enemy.def.r * ENEMY_SCALE;
+      const base = v ? v.obj.position : { x: wx(w.x), y: 0, z: wz(w.y) };
+      const p = age / WORD_LIFE;
+      const { sx, sy } = this.toScreen(base.x, base.y + r + 0.55 + 0.35 * p, base.z);
+      const pop = easeOutBack(clamp01(age / 0.16));
+      ctx.globalAlpha = clamp01((1 - p) / 0.35);
+      ctx.font = `italic 800 ${Math.round(21 * Math.max(0.8, scale) * Math.max(0.3, pop))}px ${FONT}`;
+      ctx.setTransform(m.a, 0, 0, m.d, m.a * sx + m.e, m.d * sy + m.f);
+      ctx.rotate(w.id === 'steam' ? 0.06 : -0.07);
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = 'rgba(40,24,40,0.92)';
+      ctx.strokeText(names[w.id], 0, 0);
+      ctx.fillStyle = COMBOS[w.id].color;
+      ctx.fillText(names[w.id], 0, 0);
+    }
+    ctx.restore();
+  }
+  // ---------- end combos between towers ----------
 }

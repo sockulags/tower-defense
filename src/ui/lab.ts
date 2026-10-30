@@ -15,13 +15,19 @@ import { heroStats, placeHero } from '../game/hero';
 import { createGame, spawnEnemy, startWave, update } from '../game/run';
 import { chooseBranch, needsBranch, placeTower, stats, upgrade } from '../game/towers';
 import { hpMultiplier } from '../game/waves';
+import { mend, steal, stomp } from '../game/bosses'; // bosses
+import { updateFx } from '../game/fx'; // bosses
+import { COMBOS, COMBO_ORDER, recordCombo } from '../game/combos';
+// Boons between waves: offer a choice in the sandbox, bot picks and pick rates in the balance tab.
+import { offerBoons } from '../game/boons';
+import { BOON_PICKERS, boonRates } from '../game/bots';
 import { setQuiet } from '../audio';
 import { L, fmt } from '../i18n';
 import { $ } from './dom';
 import { towerAttrIcons, traitBadges } from './traits';
 import { nav } from './nav';
 import { adopt, currentGame, currentView, renderBelt, setFrameHook, startRun } from './play';
-import type { Branch, EnemyType, Game, MapId, Tower } from '../types';
+import type { Branch, ComboId, Enemy, EnemyType, Game, MapId, Tower } from '../types';
 
 type Tab = 'gallery' | 'sandbox' | 'balance';
 
@@ -41,6 +47,7 @@ const opts = {
     strategies: ['mixed', 'spread', 'spark', 'star', 'warden'] as StrategyId[],
     runs: 10,
     weapon: 'staff' as Loadout['weapon'],
+    boonPick: 'greedy' as (typeof BOON_PICKERS)[number], // boons between waves
   },
 };
 
@@ -57,8 +64,11 @@ const bal = {
   timer: 0,
 };
 
-/** Gallery layout on Ring Rampart, whose first stretch of road is long and straight: one spot per shadow, the giant last. */
-const ENEMY_D = [1.9, 3.4, 4.9, 6.4, 7.9, 9.3, 10.6, 12.6];
+/**
+ * Gallery layout on Ring Rampart, whose first stretch of road is long and straight: one spot per
+ * shadow, the giant last. The bosses (Stomper, Thief, Mender) stand on the inner loop below the towers.
+ */
+const ENEMY_D = [1.9, 3.4, 4.9, 6.4, 7.9, 9.3, 10.6, 12.6, 40.1, 42.9, 45.7];
 const TOWER_X = [1.2, 3.6, 6, 8.4];
 const HERO_X = 10.8;
 /** Between the first stretch of road (row 1) and the inner loop (row 4). */
@@ -120,10 +130,85 @@ function galleryTick(g: Game) {
     if (opts.burn) { e.burnUntil = g.t + 1; e.burnDps = 0.001; }
     if (opts.stun) e.stun = g.t + 1;
   }
+  bossGalleryTick(g);
 }
+
+// ---------- bosses ----------
+
+/** The lab button for each boss mechanic. */
+const BOSS_ACTS = [
+  { has: (e: Enemy) => !!e.def.boss?.stomp, label: () => L().bosses.lab.stomp, run: stomp },
+  { has: (e: Enemy) => !!e.def.boss?.steal, label: () => L().bosses.lab.steal, run: steal },
+  { has: (e: Enemy) => !!e.def.boss?.mend, label: () => L().bosses.lab.mend, run: mend },
+];
+
+/** A button that sets off a boss's stomp, grab or mend for real, next to its row in the gallery. */
+function bossButtons(type: EnemyType) {
+  const probe = { def: ENEMIES[type] } as Enemy;
+  return BOSS_ACTS.map((a, i) => (a.has(probe) ? `<button class="chip" data-boss="${type}" data-act="${i}">${a.label()}</button>` : '')).join('');
+}
+
+function wireBosses(g: Game) {
+  $('lab').querySelectorAll<HTMLButtonElement>('[data-boss]').forEach((b) => {
+    b.onclick = () => {
+      const e = g.enemies.find((x) => x.type === b.dataset.boss && !x.dead);
+      if (e) BOSS_ACTS[Number(b.dataset.act)].run(g, e);
+    };
+  });
+}
+
+/**
+ * While the gallery is paused, knocked-out towers still come round and rings and words still
+ * fade, so a stomp or a mend plays out in full.
+ */
+function bossGalleryTick(g: Game) {
+  if (!g.paused) return;
+  const dt = 1 / 60;
+  for (const t of g.towers) if (t.knocked) { t.knocked = Math.max(0, t.knocked - dt); t.cd = Math.min(t.cd, t.knocked); }
+  updateFx(g, dt);
+}
+// ---------- end bosses ----------
 
 /** Nudges a cooldown so the view plays the firing animation even while paused. */
 const fire = (t: { cd: number }) => { t.cd += 0.5; };
+
+// ---------- combos between towers ----------
+
+function comboHtml() {
+  const c = L().combos;
+  return `
+    <section>
+      <h3>${c.labTitle}</h3>
+      <p class="labnote">${c.labNote}</p>
+      ${COMBO_ORDER.map((id) => `<div class="labrow"><button class="go small" data-combo="${id}">${c.names[id]}</button><span class="labnote">${c.desc[id]}</span></div>`).join('')}
+    </section>`;
+}
+
+/**
+ * Each button puts the first Inkling in the state the combo needs, plays the right tower's firing
+ * animation and sets the combo off on it, so its word, burst and the shadow's hit flash show even
+ * while the gallery is paused.
+ */
+function wireCombos(g: Game) {
+  $('lab').querySelectorAll<HTMLButtonElement>('[data-combo]').forEach((b) => {
+    b.onclick = () => {
+      const def = COMBOS[b.dataset.combo as ComboId];
+      let e = g.enemies.find((x) => x.type === 'crawler' && !x.dead);
+      if (!e) { spawnAll(g); e = g.enemies.find((x) => x.type === 'crawler')!; }
+      if (def.on.includes('stunned')) e.stun = g.t + 1;
+      else { e.slowUntil = g.t + 2; e.slowAmt = 0.45; }
+      const t = g.towers.find((x) => x.type === def.by);
+      if (t) fire(t);
+      e.lastHit = g.t + Math.random() * 1e-3;
+      recordCombo(g, def, e, true);
+      if (def.burst) {
+        const R = def.burst.r * T;
+        for (const n of g.enemies) if (n !== e && Math.hypot(n.x - e.x, n.y - e.y) <= R) n.lastHit = g.t + Math.random() * 1e-3;
+        g.fx.push({ k: 'ring', x: e.x, y: e.y, r0: 4, r1: R, life: 0.4, max: 0.4, color: def.color });
+      }
+    };
+  });
+}
 
 // ---------- sandbox ----------
 
@@ -204,10 +289,11 @@ function galleryHtml() {
       </div>
       <div class="labrow"><button class="go small" id="hFire">${lab.fire}</button><button class="go small" id="hCast">${lab.cast}</button></div>
     </section>
+    ${comboHtml()}
     <section>
       <h3>${lab.enemies}</h3>
       <div class="labrow"><span>${lab.strength(opts.strength)}</span><input type="range" id="lStrength" min="1" max="40" value="${opts.strength}"></div>
-      ${ENEMY_ORDER.map((type, i) => `<div class="labrow"><b class="ename">${s.enemies[type]}</b><button class="chip" data-hit="${i}">${lab.hit}</button><button class="chip" data-kill="${i}">${lab.kill}</button></div>`).join('')}
+      ${ENEMY_ORDER.map((type, i) => `<div class="labrow"><b class="ename">${s.enemies[type]}</b><button class="chip" data-hit="${i}">${lab.hit}</button><button class="chip" data-kill="${i}">${lab.kill}</button>${bossButtons(type)}</div>`).join('')}
       <div class="labrow"><button class="go small" id="lRespawn">${lab.respawn}</button></div>
       <div class="labrow"><span>${lab.statuses}</span>${toggle('sSlow', lab.slow, opts.slow)}${toggle('sBurn', lab.burn, opts.burn)}${toggle('sStun', lab.stun, opts.stun)}</div>
       <table>${row([c.name, c.hp, c.speed, c.gold, c.leak, s.traits.labTraits], true)}${enemyRows}</table>
@@ -233,6 +319,8 @@ function wireGallery(g: Game) {
     };
   });
   $('lRespawn').onclick = () => spawnAll(g);
+  wireCombos(g);
+  wireBosses(g);
   $('hFire').onclick = () => { if (g.hero) fire(g.hero); };
   $('hCast').onclick = () => { if (g.hero) { g.hero.castAt = g.t + Math.random() * 1e-3; g.hero.flash = 1; } };
   const loadoutSel = (id: string, key: keyof Loadout) => {
@@ -259,6 +347,7 @@ function sandboxHtml() {
     <section>
       <div class="labrow"><span>${lab.map}</span>${MAP_ORDER.map((id) => `<button class="chip ${opts.map === id ? 'on' : ''}" data-map="${id}">${s.maps[id].name}</button>`).join('')}</div>
       <div class="labrow">${toggle('dGod', lab.god, !!g.dev?.god)}${toggle('dGold', lab.freeGold, !!g.dev?.freeGold)}</div>
+      <div class="labrow"><button class="go small" id="dBoons">${s.boons.lab.offer}</button></div>
     </section>
     <section>
       <h3>${lab.spawn}</h3>
@@ -286,6 +375,7 @@ function wireSandbox(g: Game) {
     };
   });
   $('dWave').onclick = () => startWave(g);
+  $('dBoons').onclick = () => offerBoons(g); // boons between waves
   $('dClear').onclick = () => { g.enemies = []; g.queue = []; g.active = false; };
   panel.querySelectorAll<HTMLButtonElement>('[data-speed]').forEach((b) => { b.onclick = () => { g.speed = Number(b.dataset.speed); render(); }; });
   $('dPause').onclick = () => { g.paused = !g.paused; render(); };
@@ -307,6 +397,7 @@ function runBalance() {
   const groups = batchJobs({
     maps: o.maps, strategies: o.strategies, runs, survivalWaves: SURVIVAL_WAVES,
     loadout: { ...opts.loadout, weapon: o.weapon, charm: 'none' },
+    boonPick: o.boonPick,
   });
   const jobs = groups.flat(), results: RunResult[][] = groups.map(() => []);
   if (!jobs.length) return;
@@ -368,14 +459,15 @@ function balanceTable(map: MapId) {
     strategyName(r.strategy), survival ? '–' : pct(r.winRate), r.cleared.toFixed(1), r.livesLost.toFixed(1),
     ...SOURCE_KEYS.map((k) => `${pct(r.damage[k])} / ${pct(r.kills[k])}`),
     `<span class="gold">${goldLine(r.worth)}${fmt(r.worth[r.worth.length - 1] ?? 0)}</span>`,
+    ...COMBO_ORDER.map((id) => fmt(Math.round(r.combos[id]))),
   ])).join('');
   return `
     <section>
       <h3>${s.maps[map].name}</h3>
       ${survival ? `<p class="labnote">${b.survival(SURVIVAL_WAVES)}</p>` : ''}
       <div class="labscroll"><table class="baltable">
-        <tr><th rowspan="2">${c.bot}</th><th rowspan="2">${c.win}</th><th rowspan="2">${c.waves}</th><th rowspan="2">${c.lives}</th><th colspan="${SOURCE_KEYS.length}">${c.share}</th><th rowspan="2">${c.earned}</th></tr>
-        <tr>${SOURCE_KEYS.map((k) => `<th>${source(k)}</th>`).join('')}</tr>
+        <tr><th rowspan="2">${c.bot}</th><th rowspan="2">${c.win}</th><th rowspan="2">${c.waves}</th><th rowspan="2">${c.lives}</th><th colspan="${SOURCE_KEYS.length}">${c.share}</th><th rowspan="2">${c.earned}</th><th colspan="${COMBO_ORDER.length}">${s.combos.labPerRun}</th></tr>
+        <tr>${SOURCE_KEYS.map((k) => `<th>${source(k)}</th>`).join('')}${COMBO_ORDER.map((id) => `<th>${s.combos.names[id]}</th>`).join('')}</tr>
         ${body}
       </table></div>
     </section>`;
@@ -396,10 +488,28 @@ function balanceHtml() {
       <div class="labrow"><span>${b.strategies}</span>${STRATEGIES.map((id) => chip('data-bstrat', id, strategyName(id), o.strategies.includes(id))).join('')}</div>
       <div class="labrow"><span>${b.runs}</span>${[5, 10, 25, 50].map((n) => chip('data-bruns', n, String(n), o.runs === n)).join('')}</div>
       <div class="labrow"><span>${lab.warden}</span>${(Object.keys(WEAPONS) as Loadout['weapon'][]).map((w) => chip('data-bweapon', w, s.hero.weapons[w].name, o.weapon === w)).join('')}</div>
+      <div class="labrow"><span>${s.boons.lab.picker}</span>${BOON_PICKERS.map((p) => chip('data-bpick', p, s.boons.lab[p], o.boonPick === p)).join('')}</div>
       <div class="labrow">${status}</div>
     </section>
-    ${bal.running ? '' : MAP_ORDER.map(balanceTable).join('')}`;
+    ${bal.running ? '' : MAP_ORDER.map(balanceTable).join('') + boonTable()}`;
 }
+
+// ---------- boons between waves: pick rates ----------
+
+/** How often the bots took each boon when it was offered, over every map and bot in the batch. */
+function boonTable() {
+  const s = L(), b = s.boons.lab, rates = boonRates(bal.reports).filter((r) => r.offered);
+  if (!rates.length) return '';
+  const body = rates.map((r) => row([s.boons.list[r.id].name, r.offered, r.picked,
+    `<span class="boonrate"><i style="width:${Math.round(r.rate * 100)}%"></i></span>${pct(r.rate)}`])).join('');
+  return `
+    <section>
+      <h3>${b.table}</h3>
+      <p class="labnote">${b.even}</p>
+      <div class="labscroll"><table class="baltable">${row([b.boon, b.offered, b.picked, b.rate], true)}${body}</table></div>
+    </section>`;
+}
+// ---------- end boons between waves ----------
 
 function wireBalance() {
   const panel = $('lab'), o = opts.balance;
@@ -412,6 +522,7 @@ function wireBalance() {
   });
   panel.querySelectorAll<HTMLButtonElement>('[data-bruns]').forEach((b) => { b.onclick = () => { o.runs = Number(b.dataset.bruns); render(); }; });
   panel.querySelectorAll<HTMLButtonElement>('[data-bweapon]').forEach((b) => { b.onclick = () => { o.weapon = b.dataset.bweapon as Loadout['weapon']; render(); }; });
+  panel.querySelectorAll<HTMLButtonElement>('[data-bpick]').forEach((b) => { b.onclick = () => { o.boonPick = b.dataset.bpick as typeof o.boonPick; render(); }; });
   document.getElementById('balRun')?.addEventListener('click', runBalance);
   document.getElementById('balStop')?.addEventListener('click', () => { stopBalance(); render(); });
 }

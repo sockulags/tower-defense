@@ -5,6 +5,7 @@ import { metaDamage, metaDiscount, towerUnlocked } from '../save';
 import { sfx } from '../audio';
 import { burst, floatText } from './fx';
 import { distToPath } from './path';
+import { boonDiscount, boonStats } from './boons'; // boons between waves
 import type { Branch, Enemy, Game, Stats, Tower, TowerAttrs, TowerType } from '../types';
 
 /** At this level the next upgrade is a choice between two branches. */
@@ -28,6 +29,7 @@ export function stats(t: Tower): Stats {
   if (t.type === 'pulse') { if (b === 0) s.burn = s.dmg * 0.7; if (b === 1) { s.rate *= 0.7; s.stun = 0.25; } }
   if (t.type === 'star') { if (b === 0) { s.splash *= 1.6; s.dmg *= 1.4; } if (b === 1) s.shards = 5; }
   s.attrs = towerAttrs(t.type, b);
+  boonStats(t, s); // boons between waves
   return s;
 }
 
@@ -88,6 +90,7 @@ export function placeTower(g: Game, type: TowerType, x: number, y: number, anyTo
   const t: Tower = {
     type, x, y, level: 1, branch: null, cd: 0,
     invested: d.cost, angle: -Math.PI / 2, kills: 0, dealt: 0, nick: Math.floor(Math.random() * 1000), flash: 0, boost: 0,
+    mods: g.boons.mods, // boons between waves
   };
   g.towers.push(t);
   sfx.build();
@@ -96,7 +99,7 @@ export function placeTower(g: Game, type: TowerType, x: number, y: number, anyTo
 }
 
 /** Gold price of the next level. */
-export const upgradeCost = (tw: Tower) => Math.round(TOWERS[tw.type].cost * 0.8 * tw.level * metaDiscount());
+export const upgradeCost = (tw: Tower) => Math.round(TOWERS[tw.type].cost * 0.8 * tw.level * metaDiscount() * boonDiscount(tw));
 export const canUpgrade = (g: Game, tw: Tower) => tw.level < MAX_LEVEL && g.gold >= upgradeCost(tw);
 
 function levelUp(g: Game, tw: Tower) {

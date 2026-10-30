@@ -8,6 +8,7 @@ import { L } from '../i18n';
 import { applySlow, damage, inRange } from './combat';
 import { burst, floatText } from './fx';
 import { canBuild } from './towers';
+import { boonHeroStats } from './boons'; // boons between waves
 import type { Game, Hero, Stats } from '../types';
 
 export interface HeroStats extends Stats {
@@ -20,7 +21,7 @@ export interface HeroStats extends Stats {
 export function heroStats(h: Hero): HeroStats {
   const w = WEAPONS[h.loadout.weapon], lv = h.level - 1, t = h.talents;
   const dmg = w.dmg * (1 + 0.35 * lv) * (1 + 0.1 * t.might) * metaDamage();
-  return {
+  const s: HeroStats = {
     range: w.range * (1 + 0.05 * lv) * (1 + 0.08 * t.reach),
     rate: w.rate * Math.pow(0.93, lv),
     dmg,
@@ -29,6 +30,8 @@ export function heroStats(h: Hero): HeroStats {
     cooldown: w.cooldown * (1 - 0.1 * t.focus),
     power: (1 + 0.3 * lv) * (1 + 0.1 * t.might) * metaDamage(),
   };
+  boonHeroStats(h, s); // boons between waves
+  return s;
 }
 
 export function placeHero(g: Game, x: number, y: number): Hero | null {
@@ -36,6 +39,7 @@ export function placeHero(g: Game, x: number, y: number): Hero | null {
   const h: Hero = {
     isHero: true, x, y, level: 1 + g.heroTalents.veteran, loadout: { ...g.loadout }, talents: { ...g.heroTalents },
     cd: 0, abilityCd: 0, castAt: -99, angle: -Math.PI / 2, kills: 0, dealt: 0, invested: 0, flash: 1,
+    mods: g.boons.mods, // boons between waves
   };
   g.hero = h;
   sfx.build();

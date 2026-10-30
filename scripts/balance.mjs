@@ -5,11 +5,13 @@
 //   npm run balance -- --weapon sling --charm badge   a different Warden kit
 //   npm run balance -- --waves 30 --seed 7            survival wave cap, first seed
 //   npm run balance -- --json                         raw reports for scripts
+//   npm run balance -- --boons random                 how bots pick boons: greedy (default) or random
 //
 // Strategies: mixed (sensible default), spread (every tower, no upgrades), spark, frost and pulse
 // (only that tower), star (rush Starfall), warden (a few towers, then the Warden first).
 // Columns are win rate, waves cleared, lives lost, and shares of all damage and kills per tower
-// type and for the Warden; the last column is total gold earned over the waves. Runs are seeded:
+// type and for the Warden; the combo:* columns are how often each combo between towers went off per
+// run (src/game/combos.ts); the last column is total gold earned over the waves. Runs are seeded:
 // the same options give the same numbers.
 import { createServer } from 'vite';
 
@@ -35,6 +37,7 @@ try {
     runs: Number(opt('runs', '10')),
     seed: Number(opt('seed', '1')),
     survivalWaves: Number(opt('waves', '40')),
+    boonPick: opt('boons', 'greedy'),
   };
   const started = performance.now();
   const reports = bots.runBatch(o);
@@ -42,6 +45,8 @@ try {
   else {
     console.log(`Warden: ${loadout.weapon} + ${loadout.charm}. Shares are of all damage and kills. Survival maps stop at wave ${o.survivalWaves}.\n`);
     console.log(bots.formatTable(reports));
+    console.log(`Boons picked ${o.boonPick}:`);
+    console.log(bots.formatBoonTable(reports));
     console.log(`${maps.length * strategies.length * o.runs} runs in ${((performance.now() - started) / 1000).toFixed(1)} s`);
   }
 } finally {

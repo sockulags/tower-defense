@@ -65,7 +65,6 @@ export const sv: Strings = {
 
   fx: {
     wave: (n) => `Våg ${n}`,
-    giantWave: (n) => `Våg ${n}: en skuggjätte närmar sig`,
     waveCleared: (n, bonus) => `Våg ${n} klar  +${bonus} guld`,
     lifeLost: (n) => `−${n} liv`,
     level: (n) => `Nivå ${n}`,
@@ -302,7 +301,8 @@ export const sv: Strings = {
   // ---------- end of front door ----------
 
   // ---------- shadows and shadow traits ----------
-  enemies: { crawler: 'Bläckling', flitter: 'Skymningsmal', lump: 'Klumpen', shimmer: 'Slöjan', splitter: 'Bläckplumpen', speck: 'Droppen', dasher: 'Rusaren', giant: 'Mörkerfursten' },
+  enemies: { crawler: 'Bläckling', flitter: 'Skymningsmal', lump: 'Klumpen', shimmer: 'Slöjan', splitter: 'Bläckplumpen', speck: 'Droppen', dasher: 'Rusaren', giant: 'Mörkerfursten',
+    stomper: 'Stamparen', thief: 'Tjuven', mender: 'Helaren' }, // bosses
   traits: {
     names: { flying: 'Flyger', armoured: 'Pansrad', mends: 'Läker', splits: 'Delar sig', sprints: 'Rusar' },
     desc: {
@@ -324,8 +324,89 @@ export const sv: Strings = {
   },
   // ---------- end shadows and shadow traits ----------
 
+  // ---------- bosses ----------
+  bosses: {
+    wave: (n: number, name: string) => `Våg ${n}: ${name} närmar sig`,
+    title: (name: string) => name,
+    hint: {
+      giant: 'Jättestor och långsam. Slå hårt innan den når byn.',
+      stomper: 'Stampar och slår ut tornen nära sig. Torn utom räckhåll fortsätter skjuta.',
+      thief: 'Tar guld ur din pung och springer tillbaka till sprickan. Fäll den så får du tillbaka guldet.',
+      mender: 'Helar alla skuggor runt sig. Fäll den först, eller sätt eld på den.',
+    },
+    stole: (n: number) => `−${n} guld`,
+    returned: (n: number) => `+${n} guld tillbaka`,
+    escaped: (n: number) => (n ? `Kom undan med ${n} guld` : 'Kom undan'),
+    carrying: (n: number) => `${n} guld`,
+    health: (name: string) => `Hälsa för ${name}`,
+    lab: { stomp: 'Stampa', steal: 'Ta guld', mend: 'Hela' },
+  },
+  // ---------- end bosses ----------
+
+  // ---------- boons between waves ----------
+  boons: {
+    title: 'Välj en gåva',
+    sub: (wave: number) => `Våg ${wave} är avvärjd. En gåva formar resten av omgången.`,
+    take: 'Ta',
+    peek: 'Titta på banan först',
+    taken: 'Gåvor den här omgången',
+    kinds: { tower: 'Torn', economy: 'Guld', warden: 'Väktare', status: 'Vakten' },
+    list: {
+      sparkPower: { name: 'Heta trådar', desc: 'Gnisttorn gör 30 % mer skada.' },
+      sparkReach: { name: 'Lång stubin', desc: 'Gnisttorn når 25 % längre och skjuter 10 % snabbare.' },
+      rimeReach: { name: 'Krypande frost', desc: 'Rimfrosttorn når 45 % längre.' },
+      rimeFrostbite: { name: 'Köldskada', desc: 'Rimfrosttorn gör 20 % mer skada och har 18 % chans att frysa en skugga helt.' },
+      emberKindle: { name: 'Tändved', desc: 'Varje Glödpuls sätter skuggorna den träffar i brand.' },
+      emberQuick: { name: 'Blåsbälg', desc: 'Glödpulstorn pulserar 20 % snabbare och når 15 % längre.' },
+      starWide: { name: 'Breda kratrar', desc: 'Stjärnfallens nedslag blir 35 % bredare.' },
+      starPower: { name: 'Tunga stjärnor', desc: 'Stjärnfallstorn gör 25 % mer skada.' },
+      thrift: { name: 'Sparsamma händer', desc: 'Tornuppgraderingar kostar 20 % mindre den här omgången.' },
+      tithe: { name: 'Byns tionde', desc: 'Varje avvärjd våg ger 20 guld extra.' },
+      bounty: { name: 'Hittelön', desc: 'Skuggor ger 20 % mer guld.' },
+      savings: { name: 'Spargris', desc: 'Varje avvärjd våg ger 10 % av ditt guld, upp till 75.' },
+      windfall: { name: 'Oväntad skatt', desc: 'Guld direkt: 40, och 12 till för varje våg som hållits hittills.' },
+      wardenFocus: { name: 'Andra andning', desc: 'Väktarens förmåga laddas dubbelt så fort.' },
+      wardenMight: { name: 'Stålnerver', desc: 'Väktaren gör 35 % mer skada, förmågan också.' },
+      wardenReach: { name: 'Skarpa ögon', desc: 'Väktaren når 30 % längre och anfaller 15 % snabbare.' },
+      hotBurn: { name: 'Beck och tjära', desc: 'Alla brännskador gör dubbel skada, och Glödpulser lämnar alltid en liten brand.' },
+      deepChill: { name: 'Djup kyla', desc: 'Rimfrost saktar ner mer, och kylan varar hälften så länge till.' },
+      sunder: { name: 'Rost', desc: 'Pansrade skuggor har bara halva pansaret.' },
+      hearth: { name: 'Varm härd', desc: 'Hjärtat får 6 liv till.' },
+      steady: { name: 'Stadiga händer', desc: 'Alla torn anfaller 10 % snabbare.' },
+    },
+    lab: {
+      offer: 'Erbjud gåvor nu',
+      none: 'Inga gåvor tagna än.',
+      picker: 'Gåvoval',
+      random: 'Slump',
+      greedy: 'Girig',
+      table: 'Hur ofta gåvorna väljs',
+      boon: 'Gåva',
+      offered: 'Erbjuden',
+      picked: 'Vald',
+      rate: 'Valfrekvens',
+      even: 'Med tre gåvor per val ligger en jämn valfrekvens runt 33 %.',
+    },
+  },
+  // ---------- end boons between waves ----------
+
   nicknames: ['Gamle Sven', 'Lilla My', 'Bertil', 'Fröken Frost', 'Kapten Glöd', 'Tant Gnistra', 'Morbror Bo', 'Stina',
     'Vaktis', 'Doris', 'Lyktan Lasse', 'Elsa', 'Gubben Grön', 'Majken', 'Knut'],
+
+  // ---------- combos between towers (src/game/combos.ts) ----------
+  combos: {
+    words: { shatter: 'Splittra!', steam: 'Ånga!', conduct: 'Ström!' },
+    names: { shatter: 'Splittra', steam: 'Ånga', conduct: 'Ström' },
+    desc: {
+      shatter: 'Stjärnfall gör dubbel skada på en kyld eller frusen skugga.',
+      steam: 'Glödpuls på en kyld skugga blir till ånga som skållar skuggorna runt den.',
+      conduct: 'Gnista gör dubbel skada på en bedövad skugga.',
+    },
+    labTitle: 'Kombinationer',
+    labNote: 'Varje knapp kyler eller bedövar första Bläcklingen och låter rätt torn träffa den.',
+    labPerRun: 'Kombinationer per runda',
+  },
+  // ---------- end combos between towers ----------
 
   // --- installable app (src/pwa.ts) ---
   pwa: {
